@@ -1,0 +1,11 @@
+{
+  "title": "EduMate AI – Your AI Learning Companion",
+  "description": "Helps university students turn course materials into AI-generated reviewers, flashcards, quizzes, and Q&A, with progress tracking and personalized study recommendations.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

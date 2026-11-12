@@ -1,0 +1,1 @@
+This is our CAPSTONE 1 project called Edumate AI.
