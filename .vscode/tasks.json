@@ -1,0 +1,22 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      // Starts the API (port 4000) and the website (port 8443) together.
+      "label": "EduMate: start app",
+      "type": "shell",
+      "command": "npm run dev:full",
+      "options": { "cwd": "${workspaceFolder}/EduMateAI" },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "edumate",
+        "pattern": { "regexp": "^__never_matches__$" },
+        "background": {
+          "activeBegins": true,
+          "beginsPattern": "dev:full",
+          "endsPattern": "ready in"
+        }
+      }
+    }
+  ]
+}
