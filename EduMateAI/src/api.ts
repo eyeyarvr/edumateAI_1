@@ -70,7 +70,7 @@ export type Performance = {
     overallProgress: number; averageQuizScore: number; quizScoreChange: number | null; quizzesCompleted: number
     qaAnswered: number; qaAccuracy: number; cardsReviewed: number; cardsMastered: number; studySessions: number; studyHours: number
   }
-  history: { date: string; score: number }[]
+  history: { date: string; score: number; subjectCode: string }[]
   subjects: { id: number; name: string; progress: number }[]
   strongest: TopicStat[]
   weakest: TopicStat[]

@@ -5,7 +5,7 @@ import { useApp } from '../app-context'
 import { Empty, ErrorBox, Loading, Progress, SectionTitle } from '../ui'
 import { RecommendationBanner } from './Dashboard'
 
-function ScoreChart({ points }: { points: { date: string; score: number }[] }) {
+function ScoreChart({ points }: { points: { date: string; score: number; subjectCode: string }[] }) {
   if (points.length === 0) return <div className="grid h-64 place-items-center text-sm text-slate-400">Complete a quiz to start your score history.</div>
   const W = 600, H = 220
   const xs = points.map((_, i) => (points.length === 1 ? W / 2 : 10 + (i * (W - 20)) / (points.length - 1)))
@@ -13,18 +13,24 @@ function ScoreChart({ points }: { points: { date: string; score: number }[] }) {
   const line = xs.map((x, i) => `${i ? 'L' : 'M'}${x} ${ys[i]}`).join(' ')
   return (
     <>
-      <div className="relative ml-8 h-64 border-b border-l border-slate-200">
-        {[25, 50, 75, 100].map((v) => <div key={v} className="absolute left-0 w-full border-t border-dashed border-slate-100" style={{ bottom: `${v}%` }}><span className="absolute -left-8 -top-2 text-[10px] text-slate-400">{v}</span></div>)}
+      <div className="relative ml-12 h-64 border-b border-l border-slate-200">
+        <span className="absolute right-full top-1/2 mr-9 -translate-y-1/2 rotate-180 text-[10px] [writing-mode:vertical-rl] font-bold uppercase tracking-wider text-slate-400">Points</span>
+        {[0, 25, 50, 75, 100].map((v) => <div key={v} className="absolute left-0 w-full border-t border-dashed border-slate-100" style={{ bottom: `${v}%` }}><span className="absolute -left-8 -top-2 text-[10px] text-slate-400">{v}</span></div>)}
         <svg viewBox={`0 0 ${W} ${H}`} className="absolute inset-0 size-full overflow-visible" preserveAspectRatio="none">
           <defs><linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#16A34A" stopOpacity=".2" /><stop offset="100%" stopColor="#16A34A" stopOpacity="0" /></linearGradient></defs>
           {points.length > 1 && <path d={`${line} L${xs.at(-1)} ${H} L${xs[0]} ${H} Z`} fill="url(#area)" />}
           <path d={line} fill="none" stroke="#16A34A" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
         </svg>
         {points.map((p, i) => (
-          <div key={i} title={`${p.score}% · ${parseDate(p.date).toLocaleDateString()}`} className="absolute size-3 -translate-x-1/2 translate-y-1/2 rounded-full border-[3px] border-green-600 bg-white" style={{ left: `${(xs[i] / W) * 100}%`, bottom: `${p.score}%` }} />
+          <div key={i} title={`${p.subjectCode} · ${p.score}% · ${parseDate(p.date).toLocaleDateString()}`} className="absolute size-3 -translate-x-1/2 translate-y-1/2 rounded-full border-[3px] border-green-600 bg-white" style={{ left: `${(xs[i] / W) * 100}%`, bottom: `${p.score}%` }} />
         ))}
       </div>
-      <div className="ml-8 mt-3 flex justify-between text-[10px] text-slate-400">{points.map((p, i) => <span key={i}>{parseDate(p.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>)}</div>
+      <div className="ml-12 mt-3 flex justify-between text-center text-[10px] text-slate-400">{points.map((p, i) => (
+        <span key={i} className="leading-4">
+          {parseDate(p.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+          <span className="block font-bold text-green-700">{p.subjectCode}</span>
+        </span>
+      ))}</div>
     </>
   )
 }

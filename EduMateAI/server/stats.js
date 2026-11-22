@@ -62,8 +62,9 @@ export function topicAccuracy(userId, { subjectId, sinceDays } = {}) {
 
 export function quizTrend(userId, { subjectId, limit = 6 } = {}) {
   const args = subjectId ? [userId, subjectId] : [userId]
-  const rows = all(`SELECT id, completed_at, ROUND(100.0 * score / total) AS pct FROM quiz_attempts
-                    WHERE user_id = ? ${subjectId ? 'AND subject_id = ?' : ''} AND completed_at IS NOT NULL AND total > 0
-                    ORDER BY completed_at DESC, id DESC LIMIT ?`, ...args, limit)
-  return rows.reverse().map((r) => ({ date: r.completed_at, score: r.pct }))
+  const rows = all(`SELECT a.id, a.completed_at, ROUND(100.0 * a.score / a.total) AS pct, s.code, s.name
+                    FROM quiz_attempts a JOIN subjects s ON s.id = a.subject_id
+                    WHERE a.user_id = ? ${subjectId ? 'AND a.subject_id = ?' : ''} AND a.completed_at IS NOT NULL AND a.total > 0
+                    ORDER BY a.completed_at DESC, a.id DESC LIMIT ?`, ...args, limit)
+  return rows.reverse().map((r) => ({ date: r.completed_at, score: r.pct, subjectCode: r.code || r.name }))
 }
