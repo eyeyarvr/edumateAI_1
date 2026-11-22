@@ -147,6 +147,8 @@ export default function Dashboard() {
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
   const list = subjects ?? []
+  // Unfinished subjects, least course progress first.
+  const priorities = list.filter((s) => s.progress < 100).sort((a, b) => a.progress - b.progress)
 
   return (
     <div className="page-wrap">
@@ -163,10 +165,12 @@ export default function Dashboard() {
       {data && <RecommendationBanner rec={data.recommendation} />}
 
       <div className="mb-7">
-        <SectionTitle title="My Subjects" action={<div className="flex gap-2"><Button variant="secondary" onClick={openAddSubject}><Plus size={16} /> Add subject</Button>{list.length > 3 && <button onClick={() => navigate('subjects')} className="hidden text-sm font-bold text-green-600 sm:block">View all</button>}</div>} />
+        <SectionTitle title="My Priorities" action={<div className="flex gap-2"><Button variant="secondary" onClick={openAddSubject}><Plus size={16} /> Add subject</Button>{priorities.length > 3 && <button onClick={() => navigate('subjects')} className="hidden text-sm font-bold text-green-600 sm:block">View all</button>}</div>} />
         {list.length === 0
           ? <Empty icon={<BookOpen size={22} />} title="No subjects yet" text="Add the courses you’re taking this semester. Each subject keeps its own modules, flashcards and quizzes." action={<Button onClick={openAddSubject}><Plus size={16} /> Add subject</Button>} />
-          : <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{list.slice(0, 3).map((subject) => <SubjectCard key={subject.id} subject={subject} />)}</div>}
+          : priorities.length === 0
+            ? <Empty icon={<CheckCircle2 size={22} />} title="All caught up!" text="Every subject is at 100% course progress. Add a new subject or keep reviewing to stay sharp." />
+            : <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{priorities.slice(0, 3).map((subject) => <SubjectCard key={subject.id} subject={subject} />)}</div>}
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.15fr_.85fr]">
