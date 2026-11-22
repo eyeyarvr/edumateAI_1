@@ -19,6 +19,7 @@ export type Subject = {
   icon: string
   color: string
   semester: string
+  schoolYear: string
   description: string
   modules: number
   progress: number

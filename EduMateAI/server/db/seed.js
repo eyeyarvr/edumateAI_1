@@ -37,7 +37,7 @@ Use \`querySelector()\` for the first match and \`querySelectorAll()\` for every
 
 const SUBJECTS = [
   {
-    name: 'Web Development', code: 'IT 214', icon: 'WEB', color: '#DCFCE7', semester: 'Spring 2025',
+    name: 'Web Development', code: 'IT 214', icon: 'WEB', color: '#DCFCE7', semester: '2nd Semester', schoolYear: '2024-2025',
     description: 'Front-end fundamentals: HTML, CSS, JavaScript and browser APIs.',
     modules: [
       { title: 'HTML & Semantic Structure', file: 'IT214_Module_01.pdf', type: 'PDF', pages: 28, ago: 30,
@@ -66,7 +66,7 @@ const SUBJECTS = [
     ],
   },
   {
-    name: 'Data Structures', code: 'IT 221', icon: 'DSA', color: '#E0F2FE', semester: 'Spring 2025',
+    name: 'Data Structures', code: 'IT 221', icon: 'DSA', color: '#E0F2FE', semester: '2nd Semester', schoolYear: '2024-2025',
     description: 'Arrays, linked lists, stacks, queues, trees and their algorithms.',
     modules: [
       { title: 'Arrays & Linked Lists', file: 'DSA_Lists.pdf', type: 'PDF', pages: 24, ago: 12,
@@ -83,7 +83,7 @@ const SUBJECTS = [
     ],
   },
   {
-    name: 'Network Security', code: 'IT 308', icon: 'NET', color: '#F3E8FF', semester: 'Spring 2025',
+    name: 'Network Security', code: 'IT 308', icon: 'NET', color: '#F3E8FF', semester: '2nd Semester', schoolYear: '2024-2025',
     description: 'Protocols, cryptography, PKI and defensive security practices.',
     modules: [
       { title: 'Network Protocols', file: 'NetSec_Protocols.pdf', type: 'PDF', pages: 22, ago: 20,
@@ -122,8 +122,8 @@ export async function seedDemo() {
 
     for (const subj of SUBJECTS) {
       const subjectId = Number(run(
-        'INSERT INTO subjects (user_id, name, code, icon, color, semester, description, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        userId, subj.name, subj.code, subj.icon, subj.color, subj.semester, subj.description, iso(daysAgo(45)),
+        'INSERT INTO subjects (user_id, name, code, icon, color, semester, school_year, description, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        userId, subj.name, subj.code, subj.icon, subj.color, subj.semester, subj.schoolYear, subj.description, iso(daysAgo(45)),
       ).lastInsertRowid)
 
       const subjectQuestions = []

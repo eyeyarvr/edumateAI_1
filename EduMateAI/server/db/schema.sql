@@ -37,7 +37,8 @@ CREATE TABLE IF NOT EXISTS subjects (
   code          TEXT    NOT NULL DEFAULT '',
   icon          TEXT    NOT NULL DEFAULT '',
   color         TEXT    NOT NULL DEFAULT '#DCFCE7',
-  semester      TEXT    NOT NULL DEFAULT '',
+  semester      TEXT    NOT NULL DEFAULT '',  -- 1st / 2nd / 3rd Semester
+  school_year   TEXT    NOT NULL DEFAULT '',  -- e.g. 2025-2026
   description   TEXT    NOT NULL DEFAULT '',
   created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
   updated_at    TEXT    NOT NULL DEFAULT (datetime('now'))

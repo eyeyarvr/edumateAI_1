@@ -140,7 +140,7 @@ export default function CoursePage({ subjectId }: { subjectId: number }) {
         <div className="flex flex-col justify-between gap-7 lg:flex-row lg:items-end">
           <div className="flex items-start gap-4">
             <div className="grid size-14 shrink-0 place-items-center rounded-2xl bg-white/10 text-sm font-extrabold tracking-wide">{subject.icon}</div>
-            <div><div className="mb-2 text-xs font-bold uppercase tracking-wider text-green-300">{[subject.code, subject.semester].filter(Boolean).join(' · ') || 'Subject'}</div><h1 className="text-3xl font-extrabold">{subject.name}</h1><p className="mt-2 max-w-xl text-sm leading-6 text-green-50/70">{subject.description || 'Access your uploaded modules, AI-powered study materials, and course-specific learning performance.'}</p></div>
+            <div><div className="mb-2 text-xs font-bold uppercase tracking-wider text-green-300">{[subject.code, subject.semester, subject.schoolYear && `S.Y. ${subject.schoolYear}`].filter(Boolean).join(' · ') || 'Subject'}</div><h1 className="text-3xl font-extrabold">{subject.name}</h1><p className="mt-2 max-w-xl text-sm leading-6 text-green-50/70">{subject.description || 'Access your uploaded modules, AI-powered study materials, and course-specific learning performance.'}</p></div>
           </div>
           <div className="flex flex-wrap gap-3">
             <Button variant="secondary" onClick={() => editSubject(subject)}><Pencil size={16} /> Edit subject</Button>

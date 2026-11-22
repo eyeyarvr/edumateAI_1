@@ -145,6 +145,8 @@ function Header({ title, onMenu, logout }: { title: string; onMenu: () => void; 
   )
 }
 
+const SEMESTERS = ['1st Semester', '2nd Semester', '3rd Semester']
+
 /** Create / edit subject dialog. */
 function SubjectForm({ subject, onClose, onSaved }: { subject: Subject | null; onClose: () => void; onSaved: (s: Subject) => void }) {
   const toast = useToast()
@@ -154,17 +156,23 @@ function SubjectForm({ subject, onClose, onSaved }: { subject: Subject | null; o
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value })
-  const year = new Date().getFullYear()
-  const semesters = [`1st Semester ${year}-${year + 1}`, `2nd Semester ${year - 1}-${year}`, `Summer ${year}`, `Spring ${year}`, `Fall ${year}`]
-  if (form.semester && !semesters.includes(form.semester)) semesters.unshift(form.semester)
+  const [startYear, setStartYear] = useState(subject?.schoolYear.split('-')[0] ?? '')
+  const [endYear, setEndYear] = useState(subject?.schoolYear.split('-')[1] ?? '')
+  const digits = (v: string) => v.replace(/\D/g, '').slice(0, 4)
+  // Typing the first year fills in the next one (2025 → 2026); it can still be edited.
+  const changeStart = (v: string) => { const y = digits(v); setStartYear(y); if (y.length === 4) setEndYear(String(Number(y) + 1)) }
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
+    setError('')
+    if ((startYear || endYear) && !(startYear.length === 4 && Number(endYear) === Number(startYear) + 1))
+      return setError('School year must be two years in a row, e.g. 2025 - 2026.')
+    const body = { ...form, schoolYear: startYear ? `${startYear}-${endYear}` : '' }
     setBusy(true)
     try {
       const { subject: saved } = subject
-        ? await api.put<{ subject: Subject }>(`/subjects/${subject.id}`, form)
-        : await api.post<{ subject: Subject }>('/subjects', form)
+        ? await api.put<{ subject: Subject }>(`/subjects/${subject.id}`, body)
+        : await api.post<{ subject: Subject }>('/subjects', body)
       toast(subject ? 'Subject updated' : 'Subject created')
       onSaved(saved)
     } catch (err) {
@@ -179,7 +187,14 @@ function SubjectForm({ subject, onClose, onSaved }: { subject: Subject | null; o
         <label className="field">Subject name<input autoFocus required maxLength={100} value={form.name} onChange={set('name')} className="input mt-2" placeholder="e.g. Organic Chemistry" /></label>
         <div className="grid grid-cols-2 gap-3">
           <label className="field">Course code<input maxLength={20} value={form.code} onChange={set('code')} className="input mt-2" placeholder="CHEM 201" /></label>
-          <label className="field">Semester<select value={form.semester} onChange={set('semester')} className="input mt-2"><option value="">—</option>{semesters.map((s) => <option key={s}>{s}</option>)}</select></label>
+          <label className="field">Semester<select value={form.semester} onChange={set('semester')} className="input mt-2"><option value="">—</option>{SEMESTERS.map((s) => <option key={s}>{s}</option>)}</select></label>
+        </div>
+        <div className="field">School year
+          <div className="mt-2 flex items-center gap-2">
+            <input inputMode="numeric" value={startYear} onChange={(e) => changeStart(e.target.value)} className="input text-center" placeholder={String(new Date().getFullYear())} aria-label="School year start" />
+            <span className="font-bold text-slate-400">-</span>
+            <input inputMode="numeric" value={endYear} onChange={(e) => setEndYear(digits(e.target.value))} className="input text-center" placeholder={String(new Date().getFullYear() + 1)} aria-label="School year end" />
+          </div>
         </div>
         <div className="field">Card colour
           <div className="mt-2 flex gap-2">{SUBJECT_COLORS.map((c) => (

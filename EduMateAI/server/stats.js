@@ -7,7 +7,7 @@ export function logActivity(userId, subjectId, kind, text, meta = '') {
 }
 
 const SUBJECT_STATS = `
-  SELECT s.id, s.name, s.code, s.icon, s.color, s.semester, s.description, s.created_at,
+  SELECT s.id, s.name, s.code, s.icon, s.color, s.semester, s.school_year, s.description, s.created_at,
     (SELECT COUNT(*) FROM modules m WHERE m.subject_id = s.id) AS modules,
     (SELECT ROUND(100.0 * SUM(a.score) / NULLIF(SUM(a.total), 0)) FROM quiz_attempts a
        WHERE a.subject_id = s.id AND a.completed_at IS NOT NULL AND a.total > 0) AS quiz_score,
@@ -32,6 +32,7 @@ export function shapeSubject(r) {
     icon: r.icon,
     color: r.color,
     semester: r.semester,
+    schoolYear: r.school_year,
     description: r.description,
     modules: r.modules,
     progress: r.modules ? Math.round((100 * r.studied_modules) / r.modules) : 0,

@@ -41,12 +41,10 @@ export default function SubjectsPage() {
   const { subjects, reloadSubjects, openAddSubject, navigate } = useApp()
   const toast = useToast()
   const [query, setQuery] = useState('')
-  const [semester, setSemester] = useState('')
   const [view, setView] = useState<'grid' | 'list'>('grid')
   const list = subjects ?? []
-  const semesters = [...new Set(list.map((s) => s.semester).filter(Boolean))]
   const q = query.toLowerCase()
-  const filtered = list.filter((s) => (s.name.toLowerCase().includes(q) || s.code.toLowerCase().includes(q)) && (!semester || s.semester === semester))
+  const filtered = list.filter((s) => s.name.toLowerCase().includes(q) || s.code.toLowerCase().includes(q))
 
   const remove = async (s: Subject) => {
     if (!confirm(`Delete “${s.name}”? All of its modules, flashcards, quizzes and history will be permanently removed.`)) return
@@ -65,9 +63,7 @@ export default function SubjectsPage() {
       ) : (
         <>
           <div className="mb-6 flex flex-col gap-3 sm:flex-row">
-            <div className="relative max-w-lg flex-1"><Search size={17} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" /><input value={query} onChange={(e) => setQuery(e.target.value)} className="input pl-11" placeholder="Search subjects or course codes..." /></div>
-            <select value={semester} onChange={(e) => setSemester(e.target.value)} className="input w-full sm:w-52"><option value="">All semesters</option>{semesters.map((s) => <option key={s}>{s}</option>)}</select>
-          </div>
+            <div className="relative max-w-lg flex-1"><Search size={17} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" /><input value={query} onChange={(e) => setQuery(e.target.value)} className="input pl-11" placeholder="Search subjects or course codes..." /></div>          </div>
           <div className="mb-6 flex items-center justify-between text-sm">
             <span className="text-slate-500"><b className="text-slate-800">{filtered.length} subject{filtered.length === 1 ? '' : 's'}</b> · {filtered.reduce((a, s) => a + s.modules, 0)} total modules</span>
             <button onClick={() => setView(view === 'grid' ? 'list' : 'grid')} className="flex items-center gap-2 text-slate-500 hover:text-green-700">{view === 'grid' ? <><Layers3 size={16} /> Grid view</> : <><List size={16} /> List view</>}</button>
@@ -84,7 +80,7 @@ export default function SubjectsPage() {
               {filtered.map((s) => (
                 <button key={s.id} onClick={() => navigate({ page: 'course', subjectId: s.id })} className="flex w-full items-center gap-4 p-4 text-left hover:bg-slate-50">
                   <div className="grid size-10 shrink-0 place-items-center rounded-xl text-[10px] font-extrabold" style={{ background: s.color }}>{s.icon}</div>
-                  <div className="min-w-0 flex-1"><div className="truncate text-sm font-bold">{s.name}</div><div className="text-xs text-slate-400">{s.code} · {s.modules} modules · {s.semester}</div></div>
+                  <div className="min-w-0 flex-1"><div className="truncate text-sm font-bold">{s.name}</div><div className="text-xs text-slate-400">{[s.code, `${s.modules} modules`, s.semester, s.schoolYear && `S.Y. ${s.schoolYear}`].filter(Boolean).join(' · ')}</div></div>
                   <div className="hidden w-40 sm:block"><Progress value={s.progress} /></div>
                   <b className="w-12 text-right text-sm">{s.progress}%</b>
                 </button>

@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { all, findOwned, insert, one, run } from '../db/index.js'
 import { HttpError } from '../errors.js'
 import { removeUploads } from '../uploads.js'
-import { str } from '../validate.js'
+import { oneOf, str } from '../validate.js'
 import { getSubject, listSubjects, logActivity, quizTrend, topicAccuracy } from '../stats.js'
 
 export const subjectsRouter = Router()
@@ -12,6 +12,17 @@ const COLORS = ['#DCFCE7', '#E0F2FE', '#F3E8FF', '#FEF3C7', '#FFE4E6', '#E0E7FF'
 export const ownSubject = (userId, id) => findOwned('subjects', userId, id, 'Subject')
 
 const makeIcon = (name, code) => (code.split(/\s+/)[0] || name.replace(/[^A-Za-z]/g, '')).slice(0, 4).toUpperCase() || 'SUB'
+
+const SEMESTERS = ['1st Semester', '2nd Semester', '3rd Semester']
+
+/** "2025-2026": two 4-digit years, the second exactly one after the first. Empty is allowed. */
+function schoolYear(body) {
+  const v = str(body, 'schoolYear', { max: 9 })
+  if (!v) return ''
+  const m = v.match(/^(\d{4})-(\d{4})$/)
+  if (!m || Number(m[2]) !== Number(m[1]) + 1) throw new HttpError(400, 'School year must look like 2025-2026, with the second year one after the first.')
+  return v
+}
 
 /** Fields shared by create and update. icon/color fall back to `prev`, then to generated defaults. */
 function subjectFields(body, prev) {
@@ -24,7 +35,8 @@ function subjectFields(body, prev) {
     code,
     icon: str(body, 'icon', { max: 4 }) || prev.icon || makeIcon(name, code),
     color: color || prev.color,
-    semester: str(body, 'semester', { max: 40 }),
+    semester: oneOf(body, 'semester', SEMESTERS, ''),
+    schoolYear: schoolYear(body),
     description: str(body, 'description', { max: 1000 }),
   }
 }
@@ -36,8 +48,8 @@ subjectsRouter.get('/subjects', (req, res) => {
 subjectsRouter.post('/subjects', (req, res) => {
   const count = one('SELECT COUNT(*) AS n FROM subjects WHERE user_id = ?', req.userId).n
   const f = subjectFields(req.body, { color: COLORS[count % COLORS.length] })
-  const id = insert('INSERT INTO subjects (user_id, name, code, icon, color, semester, description) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    req.userId, f.name, f.code, f.icon, f.color, f.semester, f.description)
+  const id = insert('INSERT INTO subjects (user_id, name, code, icon, color, semester, school_year, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    req.userId, f.name, f.code, f.icon, f.color, f.semester, f.schoolYear, f.description)
   logActivity(req.userId, id, 'subject', `Created subject “${f.name}”`)
   res.status(201).json({ subject: getSubject(req.userId, id) })
 })
@@ -68,8 +80,8 @@ subjectsRouter.get('/subjects/:id', (req, res) => {
 subjectsRouter.put('/subjects/:id', (req, res) => {
   const s = ownSubject(req.userId, req.params.id)
   const f = subjectFields(req.body, s)
-  run(`UPDATE subjects SET name = ?, code = ?, icon = ?, color = ?, semester = ?, description = ?, updated_at = datetime('now') WHERE id = ?`,
-    f.name, f.code, f.icon, f.color, f.semester, f.description, s.id)
+  run(`UPDATE subjects SET name = ?, code = ?, icon = ?, color = ?, semester = ?, school_year = ?, description = ?, updated_at = datetime('now') WHERE id = ?`,
+    f.name, f.code, f.icon, f.color, f.semester, f.schoolYear, f.description, s.id)
   res.json({ subject: getSubject(req.userId, s.id) })
 })
 

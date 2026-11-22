@@ -16,6 +16,16 @@ db.exec('PRAGMA journal_mode = WAL;')
 db.exec('PRAGMA foreign_keys = ON;')
 db.exec(fs.readFileSync(path.join(here, 'schema.sql'), 'utf8'))
 
+// Migration: databases created before subjects had a school year.
+if (!db.prepare('PRAGMA table_info(subjects)').all().some((c) => c.name === 'school_year')) {
+  db.exec("ALTER TABLE subjects ADD COLUMN school_year TEXT NOT NULL DEFAULT ''")
+  // Old values looked like "1st Semester 2025-2026" or "Spring 2025": keep 1st/2nd/3rd + year, drop the seasons.
+  for (const s of db.prepare("SELECT id, semester FROM subjects WHERE semester != ''").all()) {
+    const m = s.semester.match(/^(1st|2nd|3rd) Semester(?:\s+(\d{4}-\d{4}))?$/)
+    db.prepare('UPDATE subjects SET semester = ?, school_year = ? WHERE id = ?').run(m ? `${m[1]} Semester` : '', m?.[2] ?? '', s.id)
+  }
+}
+
 /** Run fn inside a transaction; rolls back on error. */
 export function transaction(fn) {
   db.exec('BEGIN')
