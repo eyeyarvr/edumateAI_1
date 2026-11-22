@@ -253,7 +253,6 @@ function QuizMode({ moduleId }: { moduleId: number }) {
   const [attemptId, setAttemptId] = useState<number | null>(null)
   const [index, setIndex] = useState(0)
   const [choice, setChoice] = useState<number | null>(null)
-  const [result, setResult] = useState<AnswerResult | null>(null)
   const [answers, setAnswers] = useState<{ q: Question; chosen: number | null; r: AnswerResult | null }[]>([])
   const [done, setDone] = useState<{ score: number; total: number; percent: number } | null>(null)
   const [deadline, setDeadline] = useState<number | null>(null)
@@ -283,7 +282,7 @@ function QuizMode({ moduleId }: { moduleId: number }) {
       if (!qs.length) { toast('Add some questions first.', 'error'); return }
       const { attemptId: id } = await api.post<{ attemptId: number }>('/attempts', { moduleId, mode: 'quiz', difficulty: settings.difficulty === 'Any' ? 'Medium' : settings.difficulty })
       finishing.current = false
-      setQuestions(qs); setAttemptId(id); setIndex(0); setChoice(null); setResult(null); setAnswers([]); setDone(null)
+      setQuestions(qs); setAttemptId(id); setIndex(0); setChoice(null); setAnswers([]); setDone(null)
       setDeadline(settings.timer ? Date.now() + settings.timer * 60000 : null)
     } catch (e) { toast((e as Error).message, 'error') } finally { setBusy(false) }
   }
@@ -291,14 +290,16 @@ function QuizMode({ moduleId }: { moduleId: number }) {
     if (!questions || choice === null || !attemptId) return
     setBusy(true)
     try {
+      // Grade silently: the right answer is only revealed on the results screen.
       const r = await api.post<AnswerResult>(`/attempts/${attemptId}/answers`, { questionId: questions[index].id, chosenIndex: choice })
-      setResult(r); setAnswers((a) => [...a, { q: questions[index], chosen: choice, r }])
+      setAnswers((a) => [...a, { q: questions[index], chosen: choice, r }])
+      next()
     } catch (e) { toast((e as Error).message, 'error') } finally { setBusy(false) }
   }
   const next = () => {
     if (!questions) return
     if (index + 1 >= questions.length) return finish()
-    setIndex(index + 1); setChoice(null); setResult(null)
+    setIndex(index + 1); setChoice(null)
   }
   const removeQuestion = async (id: number) => {
     if (!confirm('Delete this question?')) return
@@ -318,11 +319,17 @@ function QuizMode({ moduleId }: { moduleId: number }) {
         <p className="mt-2 text-slate-500">You scored {done.score} out of {done.total}{done.total < questions.length ? ` (${questions.length - done.total} unanswered)` : ''}.</p>
       </div>
       <div className="mt-7 space-y-3">
-        {answers.map(({ q, chosen, r }) => (
+        {answers.map(({ q, chosen, r }, n) => (
           <div key={q.id} className={`rounded-xl border p-4 text-sm ${r?.correct ? 'border-green-200 bg-green-50/50' : 'border-red-200 bg-red-50/50'}`}>
-            <div className="font-bold text-slate-800">{q.question}</div>
-            <div className="mt-1 text-slate-600">Your answer: {chosen !== null ? q.choices[chosen] : '—'} {r?.correct ? '✓' : `· Correct: ${r?.correctAnswer}`}</div>
-            {!r?.correct && r?.explanation && <div className="mt-1 text-xs text-slate-500">{r.explanation}</div>}
+            <div className="flex items-start gap-2 font-bold text-slate-800">
+              {r?.correct ? <CheckCircle2 size={17} className="mt-0.5 shrink-0 text-green-600" /> : <XCircle size={17} className="mt-0.5 shrink-0 text-red-500" />}
+              <span>{n + 1}. {q.question}</span>
+            </div>
+            <div className="mt-2 space-y-1 pl-6">
+              <div className={r?.correct ? 'text-green-700' : 'text-red-600'}>Your answer: <b>{chosen !== null ? q.choices[chosen] : '—'}</b></div>
+              <div className="text-green-700">Correct answer: <b>{r?.correctAnswer}</b></div>
+              {r?.explanation && <div className="text-xs leading-5 text-slate-500">{r.explanation}</div>}
+            </div>
           </div>
         ))}
       </div>
@@ -355,24 +362,18 @@ function QuizMode({ moduleId }: { moduleId: number }) {
       <div className="mb-5 flex items-center justify-between"><div><p className="eyebrow">QUESTION {index + 1} OF {questions.length}</p><h2 className="font-bold">Practice Quiz · {q.topic}</h2></div>
         {remaining !== null && <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold ${remaining < 60 ? 'bg-red-50 text-red-600' : 'bg-slate-50 text-slate-600'}`}><Clock3 size={16} /> {String(Math.floor(remaining / 60)).padStart(2, '0')}:{String(remaining % 60).padStart(2, '0')}</div>}
       </div>
-      <Progress value={((index + (result ? 1 : 0)) / questions.length) * 100} className="mb-8" />
+      <Progress value={(index / questions.length) * 100} className="mb-8" />
       <p className="mb-6 text-lg font-bold leading-8 text-slate-800">{q.question}</p>
       <div className="space-y-3">
-        {q.choices.map((option, i) => {
-          const isCorrect = result && i === result.correctIndex
-          const isWrong = result && i === choice && !result.correct
-          return (
-            <button key={i} onClick={() => !result && setChoice(i)} className={`flex w-full items-center gap-3 rounded-xl border p-4 text-left text-sm font-semibold transition ${isCorrect ? 'border-green-500 bg-green-50 text-green-800' : isWrong ? 'border-red-400 bg-red-50 text-red-700' : choice === i ? 'border-green-500 bg-green-50 text-green-800' : 'border-slate-200 hover:border-green-200'}`}>
-              <span className={`grid size-7 shrink-0 place-items-center rounded-lg text-xs ${choice === i || isCorrect ? 'bg-green-600 text-white' : 'bg-slate-100 text-slate-500'} ${isWrong ? '!bg-red-500' : ''}`}>{String.fromCharCode(65 + i)}</span>{option}
-            </button>
-          )
-        })}
+        {q.choices.map((option, i) => (
+          <button key={i} onClick={() => !busy && setChoice(i)} className={`flex w-full items-center gap-3 rounded-xl border p-4 text-left text-sm font-semibold transition ${choice === i ? 'border-green-500 bg-green-50 text-green-800' : 'border-slate-200 hover:border-green-200'}`}>
+            <span className={`grid size-7 shrink-0 place-items-center rounded-lg text-xs ${choice === i ? 'bg-green-600 text-white' : 'bg-slate-100 text-slate-500'}`}>{String.fromCharCode(65 + i)}</span>{option}
+          </button>
+        ))}
       </div>
-      {result && <div className={`mt-5 rounded-xl border p-4 text-sm text-slate-600 ${result.correct ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}><b className={result.correct ? 'text-green-700' : 'text-red-700'}>{result.correct ? 'Correct!' : `Correct answer: ${result.correctAnswer}.`}</b> {result.explanation}</div>}
       <div className="mt-6 flex justify-between">
         <Button variant="ghost" onClick={() => finish()}>End quiz</Button>
-        {result ? <Button onClick={next}>{index + 1 >= questions.length ? 'See results' : 'Next question'} <ArrowRight size={15} /></Button>
-          : <Button disabled={choice === null} loading={busy} onClick={submit}>Submit answer <ArrowRight size={15} /></Button>}
+        <Button disabled={choice === null} loading={busy} onClick={submit}>{index + 1 >= questions.length ? 'Submit & see results' : 'Submit answer'} <ArrowRight size={15} /></Button>
       </div>
     </div>
   )
