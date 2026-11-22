@@ -3,7 +3,7 @@ import {
   Activity, ArrowLeft, ArrowRight, BookOpen, BrainCircuit, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Download, FileText,
   Layers3, Lightbulb, ListChecks, MessageCircle, Pencil, Plus, RotateCcw, Search, Shuffle, Sparkles, Trash2, Upload, XCircle, Zap,
 } from 'lucide-react'
-import { AnswerResult, api, downloadMarkdown, Flashcard, Module, Question, useApi } from '../api'
+import { AnswerResult, api, downloadMarkdown, Flashcard, Module, parseDate, Question, QuizAttempt, QuizReviewAnswer, useApi } from '../api'
 import { useApp } from '../app-context'
 import { Button, Empty, ErrorBox, headings, Loading, Markdown, Modal, Progress, useToast } from '../ui'
 
@@ -244,9 +244,85 @@ function FlashcardMode({ moduleId }: { moduleId: number }) {
   )
 }
 
+// ------------------------------------------------------------- quiz history
+const ordinal = (n: number) => {
+  const s = ['th', 'st', 'nd', 'rd'], v = n % 100
+  return n + (s[(v - 20) % 10] || s[v] || s[0])
+}
+const takenOn = (d: string) => parseDate(d).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+const gradeColor = (p: number) => (p >= 75 ? 'bg-green-50 text-green-700' : p >= 50 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-600')
+
+/** Every finished practice quiz for this module; click one to see its answers. */
+function QuizHistory({ moduleId, moduleTitle, onBack }: { moduleId: number; moduleTitle: string; onBack: () => void }) {
+  const { data, error, reload } = useApi<{ attempts: QuizAttempt[] }>(`/modules/${moduleId}/attempts`)
+  const [open, setOpen] = useState<QuizAttempt | null>(null)
+  if (open) return <QuizReview attempt={open} title={`${moduleTitle} — ${ordinal(open.number ?? 1)} quiz`} onBack={() => setOpen(null)} />
+  return (
+    <div className="mx-auto max-w-3xl card p-6 sm:p-9">
+      <button onClick={onBack} className="mb-5 flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-green-700"><ArrowLeft size={16} /> Back to quiz builder</button>
+      <p className="eyebrow">QUIZ HISTORY</p>
+      <h2 className="mt-2 text-2xl font-extrabold text-slate-900">{moduleTitle}</h2>
+      <p className="mt-1 text-sm text-slate-500">Every practice quiz you’ve finished for this module. Open one to review your answers.</p>
+      <div className="mt-6">
+        {error && <ErrorBox message={error} onRetry={reload} />}
+        {!data && !error && <Loading />}
+        {data && data.attempts.length === 0 && <p className="rounded-xl bg-slate-50 py-8 text-center text-sm text-slate-400">No finished quizzes yet. Take one and it will show up here.</p>}
+        <div className="space-y-3">
+          {data?.attempts.map((a) => (
+            <button key={a.id} onClick={() => setOpen(a)} className="flex w-full items-center gap-4 rounded-xl border border-slate-200 p-4 text-left transition hover:border-green-300 hover:bg-green-50/30">
+              <div className={`grid size-14 shrink-0 place-items-center rounded-xl text-sm font-extrabold ${gradeColor(a.percent)}`}>{a.percent}%</div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-bold text-slate-800">{moduleTitle} — {ordinal(a.number ?? 1)} quiz</div>
+                <div className="mt-1 text-xs text-slate-400">{takenOn(a.completedAt)} · {a.difficulty} · {a.score} of {a.total} correct</div>
+              </div>
+              <ArrowRight size={16} className="shrink-0 text-slate-400" />
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** One past quiz: each question with your answer, the right answer and the explanation. */
+function QuizReview({ attempt, title, onBack }: { attempt: QuizAttempt; title: string; onBack: () => void }) {
+  const { data, error, reload } = useApi<{ attempt: QuizAttempt; answers: QuizReviewAnswer[] }>(`/attempts/${attempt.id}`)
+  const wrong = data?.answers.filter((a) => !a.correct).length ?? 0
+  return (
+    <div className="mx-auto max-w-3xl card p-6 sm:p-9">
+      <button onClick={onBack} className="mb-5 flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-green-700"><ArrowLeft size={16} /> Back to history</button>
+      <div className="flex items-center gap-4">
+        <div className={`grid size-16 shrink-0 place-items-center rounded-2xl text-lg font-extrabold ${gradeColor(attempt.percent)}`}>{attempt.percent}%</div>
+        <div className="min-w-0">
+          <h2 className="text-xl font-extrabold text-slate-900">{title}</h2>
+          <p className="mt-1 text-sm text-slate-500">{takenOn(attempt.completedAt)} · {attempt.score} of {attempt.total} correct{data ? ` · ${wrong} wrong` : ''}</p>
+        </div>
+      </div>
+      <div className="mt-7 space-y-3">
+        {error && <ErrorBox message={error} onRetry={reload} />}
+        {!data && !error && <Loading />}
+        {data?.answers.map((a, n) => (
+          <div key={n} className={`rounded-xl border p-4 text-sm ${a.correct ? 'border-green-200 bg-green-50/50' : 'border-red-200 bg-red-50/50'}`}>
+            <div className="flex items-start gap-2 font-bold text-slate-800">
+              {a.correct ? <CheckCircle2 size={17} className="mt-0.5 shrink-0 text-green-600" /> : <XCircle size={17} className="mt-0.5 shrink-0 text-red-500" />}
+              <span>{n + 1}. {a.question ?? <i className="font-normal text-slate-400">This question was deleted from the question bank.</i>}</span>
+            </div>
+            <div className="mt-2 space-y-1 pl-6">
+              <div className={a.correct ? 'text-green-700' : 'text-red-600'}>Your answer: <b>{a.yourAnswer ?? '—'}</b></div>
+              {a.correctAnswer && <div className="text-green-700">Correct answer: <b>{a.correctAnswer}</b></div>}
+              {a.explanation && <div className="mt-2 rounded-lg bg-white/70 p-3 text-xs leading-5 text-slate-600"><b className="text-slate-700">Explanation:</b> {a.explanation}</div>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // --------------------------------------------------------------------- quiz
-function QuizMode({ moduleId }: { moduleId: number }) {
+function QuizMode({ moduleId, moduleTitle }: { moduleId: number; moduleTitle: string }) {
   const toast = useToast()
+  const [showHistory, setShowHistory] = useState(false)
   const bank = useApi<{ questions: Question[] }>(`/modules/${moduleId}/questions?withAnswers`)
   const [settings, setSettings] = useState({ count: 10, difficulty: 'Any', timer: 0 })
   const [questions, setQuestions] = useState<Question[] | null>(null)
@@ -333,10 +409,11 @@ function QuizMode({ moduleId }: { moduleId: number }) {
           </div>
         ))}
       </div>
-      <div className="mt-6 flex justify-center gap-3"><Button variant="secondary" onClick={() => { setQuestions(null); setDone(null) }}>Back to builder</Button><Button onClick={start} loading={busy}><RotateCcw size={15} /> Retake</Button></div>
+      <div className="mt-6 flex flex-wrap justify-center gap-3"><Button variant="secondary" onClick={() => { setQuestions(null); setDone(null) }}>Back to builder</Button><Button variant="secondary" onClick={() => { setQuestions(null); setDone(null); setShowHistory(true) }}><Clock3 size={15} /> Quiz history</Button><Button onClick={start} loading={busy}><RotateCcw size={15} /> Retake</Button></div>
     </div>
   )
 
+  if (!questions && showHistory) return <QuizHistory moduleId={moduleId} moduleTitle={moduleTitle} onBack={() => setShowHistory(false)} />
   if (!questions) return (
     <div className="mx-auto max-w-3xl card p-6 sm:p-9">
       <div className="mb-7 text-center"><div className="mx-auto mb-4 grid size-14 place-items-center rounded-2xl bg-green-50 text-green-600"><ListChecks size={25} /></div><p className="eyebrow">QUIZ BUILDER</p><h2 className="mt-2 text-2xl font-extrabold text-slate-900">Create your practice quiz</h2><p className="mt-2 text-sm text-slate-500">Questions are drawn only from this module’s question bank ({total} available).</p></div>
@@ -347,7 +424,7 @@ function QuizMode({ moduleId }: { moduleId: number }) {
       </div>
       <div className="mt-6 rounded-xl bg-slate-50 p-4 text-sm text-slate-500"><span className="font-bold text-slate-700">Coverage:</span> {[...new Set(bank.data.questions.map((q) => q.topic))].join(', ')}</div>
       <Button onClick={start} loading={busy} className="mt-6 h-12 w-full"><Zap size={17} /> Start quiz</Button>
-      <div className="mt-4 flex justify-center gap-4 text-sm"><button onClick={() => setAdding(true)} className="font-bold text-green-600">+ Add question</button><button onClick={() => setManaging(!managing)} className="font-bold text-slate-500">{managing ? 'Hide' : 'Manage'} question bank</button></div>
+      <div className="mt-4 flex flex-wrap justify-center gap-4 text-sm"><button onClick={() => setAdding(true)} className="font-bold text-green-600">+ Add question</button><button onClick={() => setShowHistory(true)} className="flex items-center gap-1.5 font-bold text-slate-500 hover:text-green-700"><Clock3 size={14} /> Quiz history</button><button onClick={() => setManaging(!managing)} className="font-bold text-slate-500">{managing ? 'Hide' : 'Manage'} question bank</button></div>
       {managing && <div className="mt-4 divide-y divide-slate-100 rounded-xl border border-slate-200">{bank.data.questions.map((q) => (
         <div key={q.id} className="flex items-start gap-3 p-3 text-sm"><div className="flex-1"><div className="font-semibold text-slate-700">{q.question}</div><div className="mt-0.5 text-xs text-slate-400">{q.topic} · {q.difficulty} · Answer: {q.choices[q.correctIndex ?? 0]}</div></div><button onClick={() => removeQuestion(q.id)} aria-label="Delete question" className="rounded p-1 text-slate-400 hover:text-red-500"><Trash2 size={14} /></button></div>
       ))}</div>}
@@ -510,7 +587,7 @@ export default function StudyPage({ subjectId, moduleId }: { subjectId?: number;
         </div>
         {tab === 'qa' && <QAMode key={module.id} moduleId={module.id} />}
         {tab === 'flashcards' && <FlashcardMode key={module.id} moduleId={module.id} />}
-        {tab === 'quiz' && <QuizMode key={module.id} moduleId={module.id} />}
+        {tab === 'quiz' && <QuizMode key={module.id} moduleId={module.id} moduleTitle={module.title} />}
         {tab === 'reviewer' && <ReviewerMode key={module.id} module={module} onSaved={(m) => { setModule(m); mods.reload() }} />}
       </div>
     </div>

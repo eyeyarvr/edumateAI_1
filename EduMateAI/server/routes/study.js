@@ -254,6 +254,39 @@ studyRouter.post('/attempts/:id/complete', (req, res) => {
   res.json({ ...done, percent: percent(done.score, done.total) })
 })
 
+// ------------------------------------------------------------- quiz history
+/** Finished practice quizzes for a module, newest first. `number` counts from the first one (1 = first quiz). */
+studyRouter.get('/modules/:id/attempts', (req, res) => {
+  const m = ownModule(req.userId, req.params.id)
+  const rows = all(`SELECT id, difficulty, score, total, completed_at FROM quiz_attempts
+                    WHERE module_id = ? AND user_id = ? AND mode = 'quiz' AND completed_at IS NOT NULL AND total > 0
+                    ORDER BY completed_at, id`, m.id, req.userId)
+  const attempts = rows.map((r, i) => ({ id: r.id, number: i + 1, difficulty: r.difficulty, score: r.score, total: r.total, percent: percent(r.score, r.total), completedAt: r.completed_at }))
+  res.json({ attempts: attempts.reverse() })
+})
+
+/** One finished quiz with every question, the answer given, the right answer and the explanation. */
+studyRouter.get('/attempts/:id', (req, res) => {
+  const a = ownAttempt(req.userId, req.params.id)
+  const rows = all(`SELECT qa.chosen_index, qa.answer_text, qa.is_correct, qa.topic, q.question, q.choices, q.correct_index, q.explanation
+                    FROM quiz_answers qa LEFT JOIN quiz_questions q ON q.id = qa.question_id
+                    WHERE qa.attempt_id = ? ORDER BY qa.id`, a.id)
+  res.json({
+    attempt: { id: a.id, difficulty: a.difficulty, score: a.score, total: a.total, percent: percent(a.score, a.total), completedAt: a.completed_at },
+    answers: rows.map((r) => {
+      const choices = r.choices ? JSON.parse(r.choices) : null
+      return {
+        question: r.question ?? null, // null when the question was later deleted from the bank
+        topic: r.topic,
+        correct: Boolean(r.is_correct),
+        yourAnswer: r.answer_text ?? (choices && r.chosen_index != null ? choices[r.chosen_index] : null),
+        correctAnswer: choices ? choices[r.correct_index] : null,
+        explanation: r.explanation ?? '',
+      }
+    }),
+  })
+})
+
 // ----------------------------------------------------------- study sessions
 studyRouter.post('/sessions', (req, res) => {
   const m = ownModule(req.userId, req.body.moduleId)
