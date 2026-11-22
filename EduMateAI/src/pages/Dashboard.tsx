@@ -165,7 +165,7 @@ export default function Dashboard() {
       {data && <RecommendationBanner rec={data.recommendation} />}
 
       <div className="mb-7">
-        <SectionTitle title="My Priorities" action={<div className="flex gap-2"><Button variant="secondary" onClick={openAddSubject}><Plus size={16} /> Add subject</Button>{priorities.length > 3 && <button onClick={() => navigate('subjects')} className="hidden text-sm font-bold text-green-600 sm:block">View all</button>}</div>} />
+        <SectionTitle title="My Priorities" action={<div className="flex gap-2"><Button variant="secondary" onClick={openAddSubject}><Plus size={16} /> Add subject</Button>{list.length > 0 && <button onClick={() => navigate('subjects')} className="hidden text-sm font-bold text-green-600 sm:block">View all</button>}</div>} />
         {list.length === 0
           ? <Empty icon={<BookOpen size={22} />} title="No subjects yet" text="Add the courses you’re taking this semester. Each subject keeps its own modules, flashcards and quizzes." action={<Button onClick={openAddSubject}><Plus size={16} /> Add subject</Button>} />
           : priorities.length === 0
