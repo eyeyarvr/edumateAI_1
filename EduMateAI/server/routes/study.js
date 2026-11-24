@@ -14,8 +14,9 @@ export const studyRouter = Router()
 
 const DIFFICULTIES = ['Easy', 'Medium', 'Hard']
 const INSERT_FLASHCARD = 'INSERT INTO flashcards (module_id, user_id, question, answer) VALUES (?, ?, ?, ?)'
-const INSERT_QUESTION = `INSERT INTO quiz_questions (module_id, user_id, question, choices, correct_index, explanation, topic, difficulty)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+const INSERT_QUESTION = `INSERT INTO quiz_questions (module_id, user_id, question, choices, correct_index, explanation, topic, difficulty, choice_notes)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+const parseNotes = (s) => { try { const a = JSON.parse(s || '[]'); return Array.isArray(a) ? a.map(String) : [] } catch { return [] } }
 
 const ownModule = (userId, id) => findOwned('modules', userId, id, 'Module')
 const ownCard = (userId, id) => findOwned('flashcards', userId, id, 'Flashcard')
@@ -117,9 +118,11 @@ studyRouter.post('/modules/:id/generate', async (req, res) => {
     const q = db.prepare(INSERT_QUESTION)
     for (const f of out.flashcards) card.run(m.id, req.userId, String(f.question).slice(0, 500), String(f.answer).slice(0, 2000))
     for (const x of out.questions) {
+      if (x.correctIndex >= 6) continue
       q.run(m.id, req.userId, String(x.question).slice(0, 1000), JSON.stringify(x.choices.map(String).slice(0, 6)),
         x.correctIndex, String(x.explanation || '').slice(0, 2000), String(x.topic || 'General').slice(0, 60),
-        DIFFICULTIES.includes(x.difficulty) ? x.difficulty : 'Medium')
+        DIFFICULTIES.includes(x.difficulty) ? x.difficulty : 'Medium',
+        JSON.stringify(x.choiceNotes.slice(0, 6).map((n) => n.slice(0, 1000))))
     }
     run("UPDATE modules SET reviewer = ?, status = 'Ready to Study' WHERE id = ?", out.reviewer, m.id)
     logActivity(req.userId, m.subject_id, 'reviewer', `Generated study materials for “${m.title}”`)
@@ -161,7 +164,7 @@ studyRouter.post('/flashcards/:id/review', (req, res) => {
 // ----------------------------------------------------------- quiz questions
 const shapeQuestion = (q, withAnswer = false) => ({
   id: q.id, question: q.question, choices: JSON.parse(q.choices), topic: q.topic, difficulty: q.difficulty,
-  ...(withAnswer ? { correctIndex: q.correct_index, explanation: q.explanation } : {}),
+  ...(withAnswer ? { correctIndex: q.correct_index, explanation: q.explanation, choiceNotes: parseNotes(q.choice_notes) } : {}),
 })
 
 studyRouter.get('/modules/:id/questions', (req, res) => {
@@ -183,10 +186,14 @@ studyRouter.post('/modules/:id/questions', (req, res) => {
   if (choices.length < 2 || choices.length > 6) throw new HttpError(400, 'Provide between 2 and 6 answer choices.')
   const correct = int(req.body.correctIndex, 'correct answer')
   if (correct >= choices.length) throw new HttpError(400, 'Pick which choice is correct.')
+  // Notes are matched to the non-empty choices by position, so drop the notes of empty choice boxes too.
+  const rawChoices = Array.isArray(req.body.choices) ? req.body.choices : []
+  const rawNotes = Array.isArray(req.body.choiceNotes) ? req.body.choiceNotes : []
+  const notes = rawChoices.flatMap((c, i) => (String(c).trim() ? [String(rawNotes[i] ?? '').trim().slice(0, 1000)] : []))
   const id = insert(INSERT_QUESTION,
     m.id, req.userId, str(req.body, 'question', { required: true, max: 1000 }), JSON.stringify(choices), correct,
     str(req.body, 'explanation', { max: 2000 }), str(req.body, 'topic', { max: 60 }) || 'General',
-    oneOf(req.body, 'difficulty', DIFFICULTIES, 'Medium'))
+    oneOf(req.body, 'difficulty', DIFFICULTIES, 'Medium'), JSON.stringify(notes))
   res.status(201).json({ question: shapeQuestion(one('SELECT * FROM quiz_questions WHERE id = ?', id), true) })
 })
 
@@ -238,7 +245,7 @@ studyRouter.post('/attempts/:id/answers', (req, res) => {
   run('INSERT INTO quiz_answers (attempt_id, question_id, topic, chosen_index, answer_text, is_correct) VALUES (?, ?, ?, ?, ?, ?)', a.id, q.id, q.topic, chosen, text, correct ? 1 : 0)
   run('UPDATE quiz_attempts SET score = score + ?, total = total + 1 WHERE id = ?', correct ? 1 : 0, a.id)
   const totals = one('SELECT score, total FROM quiz_attempts WHERE id = ?', a.id)
-  res.json({ correct, correctIndex: q.correct_index, correctAnswer: choices[q.correct_index], explanation: q.explanation, ...totals })
+  res.json({ correct, correctIndex: q.correct_index, correctAnswer: choices[q.correct_index], explanation: q.explanation, choiceNotes: parseNotes(q.choice_notes), ...totals })
 })
 
 studyRouter.post('/attempts/:id/complete', (req, res) => {
@@ -268,7 +275,7 @@ studyRouter.get('/modules/:id/attempts', (req, res) => {
 /** One finished quiz with every question, the answer given, the right answer and the explanation. */
 studyRouter.get('/attempts/:id', (req, res) => {
   const a = ownAttempt(req.userId, req.params.id)
-  const rows = all(`SELECT qa.chosen_index, qa.answer_text, qa.is_correct, qa.topic, q.question, q.choices, q.correct_index, q.explanation
+  const rows = all(`SELECT qa.chosen_index, qa.answer_text, qa.is_correct, qa.topic, q.question, q.choices, q.correct_index, q.explanation, q.choice_notes
                     FROM quiz_answers qa LEFT JOIN quiz_questions q ON q.id = qa.question_id
                     WHERE qa.attempt_id = ? ORDER BY qa.id`, a.id)
   res.json({
@@ -282,6 +289,10 @@ studyRouter.get('/attempts/:id', (req, res) => {
         yourAnswer: r.answer_text ?? (choices && r.chosen_index != null ? choices[r.chosen_index] : null),
         correctAnswer: choices ? choices[r.correct_index] : null,
         explanation: r.explanation ?? '',
+        choices: choices ?? [],
+        chosenIndex: r.chosen_index,
+        correctIndex: r.correct_index ?? null,
+        choiceNotes: parseNotes(r.choice_notes),
       }
     }),
   })

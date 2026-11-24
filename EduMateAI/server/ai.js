@@ -124,10 +124,26 @@ export async function chatReply(userId, subjectId, history, question) {
   return callAI({ system, messages, maxTokens: 700 })
 }
 
-/** Ask the AI to build a reviewer, flashcards and quiz questions from an uploaded module. */
-export async function generateStudyMaterial(module, subjectName) {
-  if (!aiEnabled()) throw new HttpError(503, 'AI generation needs a GEMINI_API_KEY or ANTHROPIC_API_KEY in the server .env file. You can still add flashcards and questions manually.')
+/** Shuffle a copy of an array (Fisher–Yates). */
+const shuffled = (a) => {
+  const b = [...a]
+  for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [b[i], b[j]] = [b[j], b[i]] }
+  return b
+}
 
+/** Put a question's choices (and their notes) in random order so the answer isn't always in the same slot. */
+function shuffleChoices(q) {
+  const order = shuffled(q.choices.map((_, i) => i))
+  return { ...q, choices: order.map((i) => q.choices[i]), choiceNotes: order.map((i) => q.choiceNotes[i] ?? ''), correctIndex: order.indexOf(q.correctIndex) }
+}
+
+const SYSTEM = 'You create accurate, exam-focused study material for university students. You never invent facts that are not in the source you are given.'
+
+/**
+ * Step 1: summarise the module into a reviewer. It must keep every definition and key term from the
+ * module, because the Q&A, flashcards and quiz are generated from this reviewer alone (step 2).
+ */
+async function generateReviewer(module, subjectName) {
   const content = []
   const filePath = module.stored_name ? path.join(config.uploadDir, module.stored_name) : null
   if (filePath && fs.existsSync(filePath)) {
@@ -138,24 +154,75 @@ export async function generateStudyMaterial(module, subjectName) {
     }
   }
   const grounded = content.length > 0
-  content.push({ type: 'text', text: `Subject: ${subjectName}\nModule title: ${module.title}\n${grounded ? 'Use ONLY the attached module content.' : 'The file content is not available; base the material on the standard university-level coverage of this module title.'}
+  content.push({ type: 'text', text: `Subject: ${subjectName}
+Module title: ${module.title}
+${grounded ? 'Use ONLY the attached module content. Do not add facts that are not in it.' : 'The file content is not available; base the reviewer on the standard university-level coverage of this module title.'}
+
+Write a complete, accurate study reviewer of this module in Markdown.
+
+Requirements:
+- Read the WHOLE module and summarise every topic it covers, in the module's own order.
+- Include EVERY definition and EVERY keyword / technical term that appears in the module. Do not skip any, even minor ones.
+  Keep definitions faithful to the module's wording and meaning.
+- Structure:
+  ## Overview — 2-4 sentences on what the module is about.
+  ## <Topic> — one section per topic: short paragraphs and "- " bullets with the key points, steps, formulas, examples, comparisons and lists from the module. **Bold** each key term where it is explained.
+  ## Key Terms and Definitions — a glossary listing every key term from the module, one per line, as "- **Term** — definition".
+  ## Quick Recap — 4-8 bullets with the most important takeaways.
+- Length: as long as needed to cover everything (no word limit), but concise — no filler.
+- Return only the Markdown, with no code fences and no title line.` })
+
+  const text = await callAI({ system: SYSTEM, messages: [{ role: 'user', content }], maxTokens: 8000 })
+  const reviewer = text.replace(/^```(?:markdown|md)?\s*|\s*```$/g, '').trim()
+  if (!reviewer) throw new HttpError(502, 'The AI could not summarise this module. Please try generating again.')
+  return { reviewer, grounded }
+}
+
+/** Step 2: build flashcards and quiz questions using only what the reviewer says. */
+async function generateFromReviewer(reviewer, module, subjectName) {
+  const prompt = `Subject: ${subjectName}
+Module title: ${module.title}
+
+REVIEWER:
+"""
+${reviewer}
+"""
+
+Using ONLY the information written in the reviewer above, create study material. Every question and answer must be answerable from the reviewer; do not introduce outside facts.
 
 Return ONLY valid JSON (no markdown fences) with this shape:
-{"reviewer": "markdown study notes using ## headings, short paragraphs, - bullet lists and **bold** key terms (300-600 words)",
- "flashcards": [{"question": "...", "answer": "..."}],
- "questions": [{"question": "...", "choices": ["A","B","C","D"], "correctIndex": 0, "explanation": "...", "topic": "short topic name", "difficulty": "Easy|Medium|Hard"}]}
-Create 8-12 flashcards and 8-10 multiple-choice questions with exactly 4 choices each.` })
+{"flashcards": [{"question": "...", "answer": "..."}],
+ "questions": [{"question": "...", "choices": ["...","...","...","..."], "correctIndex": 0,
+   "explanation": "why the correct answer is right, with a short example",
+   "choiceNotes": ["note for choice 1", "note for choice 2", "note for choice 3", "note for choice 4"],
+   "topic": "short topic name (a reviewer section)", "difficulty": "Easy|Medium|Hard"}]}
 
-  const text = await callAI({ system: 'You create accurate, exam-focused study material for university students.', messages: [{ role: 'user', content }], maxTokens: 6000, json: true })
+Rules:
+- Flashcards: one card for every term in the "Key Terms and Definitions" section ("What is <term>?" → its definition), plus cards for other key concepts. Between 10 and 40 cards.
+- Questions: 12-20 multiple-choice questions with exactly 4 choices each, covering every section of the reviewer, mixed Easy / Medium / Hard.
+- The correct choice should be short (a term, phrase or value) so it can also be used as a typed answer.
+- Wrong choices must be plausible (use other terms from the reviewer where possible).
+- "choiceNotes" has exactly one entry per choice, in the same order. For the correct choice, explain why it is correct; for each wrong choice, explain why it is wrong or what it actually means. Every note must include a concrete example (start it with "Example:"), taken from the reviewer where possible. 1-3 sentences each.`
+
+  const text = await callAI({ system: SYSTEM, messages: [{ role: 'user', content: prompt }], maxTokens: 12000, json: true })
+  let json
   try {
-    const json = JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, ''))
-    return {
-      reviewer: String(json.reviewer || ''),
-      flashcards: (json.flashcards || []).filter((f) => f.question && f.answer),
-      questions: (json.questions || []).filter((q) => q.question && Array.isArray(q.choices) && q.choices.length >= 2 && Number.isInteger(q.correctIndex) && q.correctIndex < q.choices.length),
-      grounded,
-    }
+    json = JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, ''))
   } catch {
     throw new HttpError(502, 'The AI returned an unexpected format. Please try generating again.')
   }
+  return {
+    flashcards: (json.flashcards || []).filter((f) => f.question && f.answer),
+    questions: (json.questions || [])
+      .filter((q) => q.question && Array.isArray(q.choices) && q.choices.length >= 2 && Number.isInteger(q.correctIndex) && q.correctIndex >= 0 && q.correctIndex < q.choices.length)
+      .map((q) => shuffleChoices({ ...q, choiceNotes: Array.isArray(q.choiceNotes) ? q.choiceNotes.map((n) => String(n ?? '')) : [] })),
+  }
+}
+
+/** Ask the AI to build a reviewer from an uploaded module, then flashcards and quiz questions from that reviewer. */
+export async function generateStudyMaterial(module, subjectName) {
+  if (!aiEnabled()) throw new HttpError(503, 'AI generation needs a GEMINI_API_KEY or ANTHROPIC_API_KEY in the server .env file. You can still add flashcards and questions manually.')
+  const { reviewer, grounded } = await generateReviewer(module, subjectName)
+  const { flashcards, questions } = await generateFromReviewer(reviewer, module, subjectName)
+  return { reviewer, flashcards, questions, grounded }
 }

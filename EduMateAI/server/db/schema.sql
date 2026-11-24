@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS quiz_questions (
   choices        TEXT    NOT NULL,            -- JSON array of strings
   correct_index  INTEGER NOT NULL,
   explanation    TEXT    NOT NULL DEFAULT '',
+  choice_notes   TEXT    NOT NULL DEFAULT '[]', -- JSON array: why each choice is right/wrong, with an example
   topic          TEXT    NOT NULL DEFAULT 'General',
   difficulty     TEXT    NOT NULL DEFAULT 'Medium' CHECK (difficulty IN ('Easy','Medium','Hard')),
   created_at     TEXT    NOT NULL DEFAULT (datetime('now'))

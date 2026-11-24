@@ -19,6 +19,7 @@ function shuffle<T>(a: T[]) {
 function QuestionForm({ moduleId, onClose, onSaved }: { moduleId: number; onClose: () => void; onSaved: () => void }) {
   const [question, setQuestion] = useState('')
   const [choices, setChoices] = useState(['', '', '', ''])
+  const [notes, setNotes] = useState(['', '', '', ''])
   const [correct, setCorrect] = useState(0)
   const [explanation, setExplanation] = useState('')
   const [topic, setTopic] = useState('')
@@ -33,7 +34,7 @@ function QuestionForm({ moduleId, onClose, onSaved }: { moduleId: number; onClos
     try {
       // Keep the chosen answer's position after removing blank choices.
       const nonEmpty = filled.map((c, i) => [c, i] as const).filter(([c]) => c)
-      await api.post(`/modules/${moduleId}/questions`, { question, choices: nonEmpty.map(([c]) => c), correctIndex: nonEmpty.findIndex(([, i]) => i === correct), explanation, topic, difficulty })
+      await api.post(`/modules/${moduleId}/questions`, { question, choices: nonEmpty.map(([c]) => c), choiceNotes: nonEmpty.map(([, i]) => notes[i].trim()), correctIndex: nonEmpty.findIndex(([, i]) => i === correct), explanation, topic, difficulty })
       onSaved()
     } catch (err) { setError((err as Error).message) } finally { setBusy(false) }
   }
@@ -43,9 +44,12 @@ function QuestionForm({ moduleId, onClose, onSaved }: { moduleId: number; onClos
         <label className="field">Question<textarea autoFocus required value={question} onChange={(e) => setQuestion(e.target.value)} className="input mt-2 min-h-20 py-3" /></label>
         <div className="field">Answer choices <span className="font-normal text-slate-400">(select the correct one)</span>
           <div className="mt-2 space-y-2">{choices.map((c, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <input type="radio" name="correct" checked={correct === i} onChange={() => setCorrect(i)} className="size-4 accent-green-600" aria-label={`Choice ${i + 1} is correct`} />
-              <input value={c} required={i < 2} onChange={(e) => setChoices(choices.map((x, j) => (j === i ? e.target.value : x)))} className="input h-10" placeholder={`Choice ${String.fromCharCode(65 + i)}${i >= 2 ? ' (optional)' : ''}`} />
+            <div key={i} className="space-y-1">
+              <div className="flex items-center gap-2">
+                <input type="radio" name="correct" checked={correct === i} onChange={() => setCorrect(i)} className="size-4 accent-green-600" aria-label={`Choice ${i + 1} is correct`} />
+                <input value={c} required={i < 2} onChange={(e) => setChoices(choices.map((x, j) => (j === i ? e.target.value : x)))} className="input h-10" placeholder={`Choice ${String.fromCharCode(65 + i)}${i >= 2 ? ' (optional)' : ''}`} />
+              </div>
+              {c.trim() && <input value={notes[i]} onChange={(e) => setNotes(notes.map((x, j) => (j === i ? e.target.value : x)))} className="input ml-6 h-9 w-[calc(100%-1.5rem)] text-xs" placeholder={correct === i ? 'Why this is correct — with an example (optional)' : 'Why this is wrong — with an example (optional)'} />}
             </div>
           ))}</div>
         </div>
@@ -72,8 +76,46 @@ function NoQuestions({ moduleId, onAdded }: { moduleId: number; onAdded: () => v
   )
 }
 
+/**
+ * Results view of one multiple-choice question: every choice with its explanation/example, marking
+ * the correct one and the one the student picked. `order` is the display order the student saw.
+ */
+function ChoiceBreakdown({ choices, notes, correctIndex, chosenIndex, explanation, order }: {
+  choices: string[]; notes: string[]; correctIndex: number | null; chosenIndex: number | null; explanation: string; order?: number[]
+}) {
+  const shown = order && order.length === choices.length ? order : choices.map((_, i) => i)
+  const hasNotes = notes.some((n) => n.trim())
+  return (
+    <div className="mt-3 space-y-2">
+      {shown.map((i, pos) => {
+        const isCorrect = i === correctIndex
+        const isChosen = i === chosenIndex
+        // Older questions have no per-choice notes: fall back to the question's explanation on the correct choice.
+        const note = notes[i]?.trim() || (isCorrect && !hasNotes ? explanation : '')
+        const tone = isCorrect ? 'border-green-300 bg-green-50' : isChosen ? 'border-red-300 bg-red-50' : 'border-slate-200 bg-white/70'
+        return (
+          <div key={i} className={`rounded-lg border p-3 ${tone}`}>
+            <div className="flex items-start gap-2">
+              <span className={`grid size-6 shrink-0 place-items-center rounded-md text-[11px] font-bold ${isCorrect ? 'bg-green-600 text-white' : isChosen ? 'bg-red-500 text-white' : 'bg-slate-100 text-slate-500'}`}>{String.fromCharCode(65 + pos)}</span>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2 font-semibold text-slate-800">
+                  {choices[i]}
+                  {isCorrect && <span className="rounded-full bg-green-600/10 px-2 py-0.5 text-[10px] font-bold uppercase text-green-700">Correct answer</span>}
+                  {isChosen && <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${isCorrect ? 'bg-green-600/10 text-green-700' : 'bg-red-500/10 text-red-600'}`}>Your answer</span>}
+                </div>
+                {note && <p className="mt-1 whitespace-pre-line text-xs leading-5 text-slate-600">{note}</p>}
+              </div>
+            </div>
+          </div>
+        )
+      })}
+      {hasNotes && explanation && <div className="rounded-lg bg-white/70 p-3 text-xs leading-5 text-slate-600"><b className="text-slate-700">Explanation:</b> {explanation}</div>}
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------------- Q&A
-function QAMode({ moduleId }: { moduleId: number }) {
+function QAMode({ moduleId, onOpenReviewer }: { moduleId: number; onOpenReviewer: () => void }) {
   const toast = useToast()
   const [difficulty, setDifficulty] = useState<'Easy' | 'Medium' | 'Hard'>('Medium')
   const { data, error, reload } = useApi<{ questions: Question[] }>(`/modules/${moduleId}/questions?difficulty=${difficulty}&shuffle=1&limit=10`)
@@ -116,6 +158,11 @@ function QAMode({ moduleId }: { moduleId: number }) {
     if (attemptId && !finished) api.post(`/attempts/${attemptId}/complete`).catch(() => {})
     setDifficulty(d)
   }
+  // Draw a new random set of questions (also a new round).
+  const reshuffle = () => {
+    if (attemptId && !finished) api.post(`/attempts/${attemptId}/complete`).catch(() => {})
+    reload()
+  }
 
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_290px]">
@@ -130,7 +177,10 @@ function QAMode({ moduleId }: { moduleId: number }) {
         ) : <>
           <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
             <div><p className="eyebrow">QUESTION {index + 1} OF {questions.length}</p><h2 className="mt-1 text-xl font-bold text-slate-900">Test your understanding</h2></div>
-            <div className="flex rounded-xl bg-slate-100 p-1">{(['Easy', 'Medium', 'Hard'] as const).map((d) => <button key={d} onClick={() => changeDifficulty(d)} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${difficulty === d ? 'bg-white text-green-700 shadow-sm' : 'text-slate-500'}`}>{d}</button>)}</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button onClick={reshuffle} title="Draw a new random set of questions" className="flex items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 hover:border-green-300 hover:text-green-700"><Shuffle size={14} /> Shuffle</button>
+              <div className="flex rounded-xl bg-slate-100 p-1">{(['Easy', 'Medium', 'Hard'] as const).map((d) => <button key={d} onClick={() => changeDifficulty(d)} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${difficulty === d ? 'bg-white text-green-700 shadow-sm' : 'text-slate-500'}`}>{d}</button>)}</div>
+            </div>
           </div>
           <Progress value={((index + (result ? 1 : 0)) / questions.length) * 100} className="mb-8" />
           <div className="rounded-2xl bg-slate-50 p-5 sm:p-7">
@@ -155,6 +205,7 @@ function QAMode({ moduleId }: { moduleId: number }) {
       <aside className="space-y-4">
         <div className="card p-5"><div className="mb-4 flex items-center gap-2 font-bold text-slate-800"><Activity size={17} className="text-green-600" /> Session score</div><div className="grid grid-cols-2 gap-3"><div className="rounded-xl bg-green-50 p-3"><div className="text-2xl font-extrabold text-green-700">{tally.correct}</div><div className="text-[11px] text-green-700">Correct</div></div><div className="rounded-xl bg-red-50 p-3"><div className="text-2xl font-extrabold text-red-600">{tally.wrong}</div><div className="text-[11px] text-red-600">Review</div></div></div></div>
         <div className="card p-5"><div className="mb-3 flex items-center gap-2 font-bold text-slate-800"><Lightbulb size={17} className="text-amber-500" /> Study tip</div><p className="text-sm leading-6 text-slate-500">Answer in your own words first — explaining a concept is the fastest way to find gaps. Grading checks for the key idea, not exact wording.</p></div>
+        <div className="card p-5"><div className="mb-3 flex items-center gap-2 font-bold text-slate-800"><FileText size={17} className="text-green-600" /> Stuck?</div><p className="text-sm leading-6 text-slate-500">These questions come from this module’s reviewer. Check it any time — your Q&A progress is kept while you switch tabs.</p><Button variant="secondary" className="mt-3 w-full" onClick={onOpenReviewer}><FileText size={15} /> Open reviewer</Button></div>
       </aside>
     </div>
   )
@@ -307,11 +358,11 @@ function QuizReview({ attempt, title, onBack }: { attempt: QuizAttempt; title: s
               {a.correct ? <CheckCircle2 size={17} className="mt-0.5 shrink-0 text-green-600" /> : <XCircle size={17} className="mt-0.5 shrink-0 text-red-500" />}
               <span>{n + 1}. {a.question ?? <i className="font-normal text-slate-400">This question was deleted from the question bank.</i>}</span>
             </div>
-            <div className="mt-2 space-y-1 pl-6">
+            {a.choices.length > 0 && a.chosenIndex !== null ? <div className="pl-6"><ChoiceBreakdown choices={a.choices} notes={a.choiceNotes} correctIndex={a.correctIndex} chosenIndex={a.chosenIndex} explanation={a.explanation} /></div> : <div className="mt-2 space-y-1 pl-6">
               <div className={a.correct ? 'text-green-700' : 'text-red-600'}>Your answer: <b>{a.yourAnswer ?? '—'}</b></div>
               {a.correctAnswer && <div className="text-green-700">Correct answer: <b>{a.correctAnswer}</b></div>}
               {a.explanation && <div className="mt-2 rounded-lg bg-white/70 p-3 text-xs leading-5 text-slate-600"><b className="text-slate-700">Explanation:</b> {a.explanation}</div>}
-            </div>
+            </div>}
           </div>
         ))}
       </div>
@@ -329,7 +380,9 @@ function QuizMode({ moduleId, moduleTitle }: { moduleId: number; moduleTitle: st
   const [attemptId, setAttemptId] = useState<number | null>(null)
   const [index, setIndex] = useState(0)
   const [choice, setChoice] = useState<number | null>(null)
-  const [answers, setAnswers] = useState<{ q: Question; chosen: number | null; r: AnswerResult | null }[]>([])
+  const [answers, setAnswers] = useState<{ q: Question; chosen: number | null; r: AnswerResult | null; order: number[] }[]>([])
+  // Display order of each question's choices (shuffled per quiz); values are the original choice indexes.
+  const [orders, setOrders] = useState<Record<number, number[]>>({})
   const [done, setDone] = useState<{ score: number; total: number; percent: number } | null>(null)
   const [deadline, setDeadline] = useState<number | null>(null)
   const [now, setNow] = useState(Date.now())
@@ -358,6 +411,7 @@ function QuizMode({ moduleId, moduleTitle }: { moduleId: number; moduleTitle: st
       if (!qs.length) { toast('Add some questions first.', 'error'); return }
       const { attemptId: id } = await api.post<{ attemptId: number }>('/attempts', { moduleId, mode: 'quiz', difficulty: settings.difficulty === 'Any' ? 'Medium' : settings.difficulty })
       finishing.current = false
+      setOrders(Object.fromEntries(qs.map((x) => [x.id, shuffle(x.choices.map((_, i) => i))])))
       setQuestions(qs); setAttemptId(id); setIndex(0); setChoice(null); setAnswers([]); setDone(null)
       setDeadline(settings.timer ? Date.now() + settings.timer * 60000 : null)
     } catch (e) { toast((e as Error).message, 'error') } finally { setBusy(false) }
@@ -368,7 +422,7 @@ function QuizMode({ moduleId, moduleTitle }: { moduleId: number; moduleTitle: st
     try {
       // Grade silently: the right answer is only revealed on the results screen.
       const r = await api.post<AnswerResult>(`/attempts/${attemptId}/answers`, { questionId: questions[index].id, chosenIndex: choice })
-      setAnswers((a) => [...a, { q: questions[index], chosen: choice, r }])
+      setAnswers((a) => [...a, { q: questions[index], chosen: choice, r, order: orders[questions[index].id] ?? [] }])
       next()
     } catch (e) { toast((e as Error).message, 'error') } finally { setBusy(false) }
   }
@@ -395,16 +449,14 @@ function QuizMode({ moduleId, moduleTitle }: { moduleId: number; moduleTitle: st
         <p className="mt-2 text-slate-500">You scored {done.score} out of {done.total}{done.total < questions.length ? ` (${questions.length - done.total} unanswered)` : ''}.</p>
       </div>
       <div className="mt-7 space-y-3">
-        {answers.map(({ q, chosen, r }, n) => (
+        {answers.map(({ q, chosen, r, order }, n) => (
           <div key={q.id} className={`rounded-xl border p-4 text-sm ${r?.correct ? 'border-green-200 bg-green-50/50' : 'border-red-200 bg-red-50/50'}`}>
             <div className="flex items-start gap-2 font-bold text-slate-800">
               {r?.correct ? <CheckCircle2 size={17} className="mt-0.5 shrink-0 text-green-600" /> : <XCircle size={17} className="mt-0.5 shrink-0 text-red-500" />}
               <span>{n + 1}. {q.question}</span>
             </div>
-            <div className="mt-2 space-y-1 pl-6">
-              <div className={r?.correct ? 'text-green-700' : 'text-red-600'}>Your answer: <b>{chosen !== null ? q.choices[chosen] : '—'}</b></div>
-              <div className="text-green-700">Correct answer: <b>{r?.correctAnswer}</b></div>
-              {r?.explanation && <div className="text-xs leading-5 text-slate-500">{r.explanation}</div>}
+            <div className="pl-6">
+              <ChoiceBreakdown choices={q.choices} notes={r?.choiceNotes ?? []} correctIndex={r?.correctIndex ?? null} chosenIndex={chosen} explanation={r?.explanation ?? ''} order={order} />
             </div>
           </div>
         ))}
@@ -442,9 +494,9 @@ function QuizMode({ moduleId, moduleTitle }: { moduleId: number; moduleTitle: st
       <Progress value={(index / questions.length) * 100} className="mb-8" />
       <p className="mb-6 text-lg font-bold leading-8 text-slate-800">{q.question}</p>
       <div className="space-y-3">
-        {q.choices.map((option, i) => (
+        {(orders[q.id]?.length === q.choices.length ? orders[q.id] : q.choices.map((_, i) => i)).map((i, pos) => (
           <button key={i} onClick={() => !busy && setChoice(i)} className={`flex w-full items-center gap-3 rounded-xl border p-4 text-left text-sm font-semibold transition ${choice === i ? 'border-green-500 bg-green-50 text-green-800' : 'border-slate-200 hover:border-green-200'}`}>
-            <span className={`grid size-7 shrink-0 place-items-center rounded-lg text-xs ${choice === i ? 'bg-green-600 text-white' : 'bg-slate-100 text-slate-500'}`}>{String.fromCharCode(65 + i)}</span>{option}
+            <span className={`grid size-7 shrink-0 place-items-center rounded-lg text-xs ${choice === i ? 'bg-green-600 text-white' : 'bg-slate-100 text-slate-500'}`}>{String.fromCharCode(65 + pos)}</span>{q.choices[i]}
           </button>
         ))}
       </div>
@@ -521,7 +573,10 @@ function ModulePicker() {
 
 export default function StudyPage({ subjectId, moduleId }: { subjectId?: number; moduleId?: number }) {
   const { subjects, navigate, reloadSubjects } = useApp()
-  const [tab, setTab] = useState<Tab>('flashcards')
+  const [tab, setTabState] = useState<Tab>('flashcards')
+  // Tabs stay mounted once opened, so switching (e.g. from Q&A to the reviewer and back) keeps your progress.
+  const [visited, setVisited] = useState<Set<Tab>>(() => new Set<Tab>(['flashcards']))
+  const setTab = (t: Tab) => { setTabState(t); setVisited((v) => (v.has(t) ? v : new Set(v).add(t))) }
   const subject = subjects?.find((s) => s.id === subjectId)
   const mods = useApi<{ modules: Module[] }>(subject ? `/subjects/${subject.id}/modules` : null)
   const modules = mods.data?.modules ?? []
@@ -585,10 +640,10 @@ export default function StudyPage({ subjectId, moduleId }: { subjectId?: number;
             return <button key={item.id} onClick={() => setTab(item.id)} className={`flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-bold transition ${tab === item.id ? 'bg-green-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}><Icon size={17} /> {item.label}</button>
           })}
         </div>
-        {tab === 'qa' && <QAMode key={module.id} moduleId={module.id} />}
-        {tab === 'flashcards' && <FlashcardMode key={module.id} moduleId={module.id} />}
-        {tab === 'quiz' && <QuizMode key={module.id} moduleId={module.id} moduleTitle={module.title} />}
-        {tab === 'reviewer' && <ReviewerMode key={module.id} module={module} onSaved={(m) => { setModule(m); mods.reload() }} />}
+        {visited.has('qa') && <div hidden={tab !== 'qa'}><QAMode key={module.id} moduleId={module.id} onOpenReviewer={() => setTab('reviewer')} /></div>}
+        {visited.has('flashcards') && <div hidden={tab !== 'flashcards'}><FlashcardMode key={module.id} moduleId={module.id} /></div>}
+        {visited.has('quiz') && <div hidden={tab !== 'quiz'}><QuizMode key={module.id} moduleId={module.id} moduleTitle={module.title} /></div>}
+        {visited.has('reviewer') && <div hidden={tab !== 'reviewer'}><ReviewerMode key={module.id} module={module} onSaved={(m) => { setModule(m); mods.reload() }} /></div>}
       </div>
     </div>
   )

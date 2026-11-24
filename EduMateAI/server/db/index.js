@@ -26,6 +26,11 @@ if (!db.prepare('PRAGMA table_info(subjects)').all().some((c) => c.name === 'sch
   }
 }
 
+// Migration: databases created before quiz questions had a note (explanation + example) for each choice.
+if (!db.prepare('PRAGMA table_info(quiz_questions)').all().some((c) => c.name === 'choice_notes')) {
+  db.exec("ALTER TABLE quiz_questions ADD COLUMN choice_notes TEXT NOT NULL DEFAULT '[]'")
+}
+
 /** Run fn inside a transaction; rolls back on error. */
 export function transaction(fn) {
   db.exec('BEGIN')

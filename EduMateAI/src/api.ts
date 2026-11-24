@@ -58,10 +58,10 @@ export type Module = {
 }
 
 export type Flashcard = { id: number; question: string; answer: string; lastResult: 'known' | 'review' | null }
-export type Question = { id: number; question: string; choices: string[]; topic: string; difficulty: 'Easy' | 'Medium' | 'Hard'; correctIndex?: number; explanation?: string }
+export type Question = { id: number; question: string; choices: string[]; topic: string; difficulty: 'Easy' | 'Medium' | 'Hard'; correctIndex?: number; explanation?: string; choiceNotes?: string[] }
 export type QuizAttempt = { id: number; number?: number; difficulty: string; score: number; total: number; percent: number; completedAt: string }
-export type QuizReviewAnswer = { question: string | null; topic: string; correct: boolean; yourAnswer: string | null; correctAnswer: string | null; explanation: string }
-export type AnswerResult ={ correct: boolean; correctIndex: number; correctAnswer: string; explanation: string; score: number; total: number }
+export type QuizReviewAnswer = { question: string | null; topic: string; correct: boolean; yourAnswer: string | null; correctAnswer: string | null; explanation: string; choices: string[]; chosenIndex: number | null; correctIndex: number | null; choiceNotes: string[] }
+export type AnswerResult = { correct: boolean; correctIndex: number; correctAnswer: string; explanation: string; choiceNotes: string[]; score: number; total: number }
 export type Task = { id: number; title: string; dueDate: string | null; priority: 'Low' | 'Medium' | 'High'; done: boolean; createdAt: string }
 export type CalendarEvent = { id: number; subjectId: number | null; subjectName: string | null; title: string; date: string; time: string; durationMinutes: number; type: 'Study' | 'Exam' | 'Assignment' | 'Reminder'; notes: string }
 export type ChatMessage = { id: number; role: 'user' | 'ai'; content: string; createdAt: string }
