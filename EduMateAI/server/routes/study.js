@@ -6,7 +6,7 @@ import { all, db, findOwned, insert, one, run, transaction } from '../db/index.j
 import { HttpError } from '../errors.js'
 import { int, oneOf, str } from '../validate.js'
 import { ownSubject } from './subjects.js'
-import { aiEnabled, generateStudyMaterial } from '../ai.js'
+import { aiEnabled, explainChoices, generateStudyMaterial } from '../ai.js'
 import { logActivity } from '../stats.js'
 import { FILE_TYPES, pdfPages, removeUploads, upload, uploadPath } from '../uploads.js'
 
@@ -197,6 +197,37 @@ studyRouter.post('/modules/:id/questions', (req, res) => {
   res.status(201).json({ question: shapeQuestion(one('SELECT * FROM quiz_questions WHERE id = ?', id), true) })
 })
 
+/**
+ * Per-choice notes for the given questions. Any question missing a note for some choice gets one
+ * written now (AI, or the reviewer glossary without AI); AI-written notes are saved for next time.
+ */
+studyRouter.post('/questions/explain', async (req, res) => {
+  const ids = [...new Set((Array.isArray(req.body.questionIds) ? req.body.questionIds : []).map(Number).filter(Number.isInteger))].slice(0, 50)
+  const rows = ids.length
+    ? all(`SELECT * FROM quiz_questions WHERE user_id = ? AND id IN (${ids.map(() => '?').join(',')})`, req.userId, ...ids)
+    : []
+  const notes = {}
+  const missing = new Map() // module id -> questions needing notes
+  for (const q of rows) {
+    const choices = JSON.parse(q.choices)
+    const n = parseNotes(q.choice_notes)
+    notes[q.id] = n
+    if (choices.some((_, i) => !n[i]?.trim())) {
+      if (!missing.has(q.module_id)) missing.set(q.module_id, [])
+      missing.get(q.module_id).push({ id: q.id, question: q.question, choices, correctIndex: q.correct_index, explanation: q.explanation, notes: n })
+    }
+  }
+  for (const [moduleId, items] of missing) {
+    const reviewer = one('SELECT reviewer FROM modules WHERE id = ?', moduleId)?.reviewer ?? ''
+    const written = await explainChoices(items, reviewer)
+    for (const [id, n] of written) {
+      notes[id] = n
+      if (aiEnabled()) run('UPDATE quiz_questions SET choice_notes = ? WHERE id = ? AND user_id = ?', JSON.stringify(n.map((x) => x.slice(0, 1000))), id, req.userId)
+    }
+  }
+  res.json({ notes })
+})
+
 studyRouter.delete('/questions/:id', (req, res) => {
   run('DELETE FROM quiz_questions WHERE id = ?', findOwned('quiz_questions', req.userId, req.params.id, 'Question').id)
   res.json({ ok: true })
@@ -275,7 +306,7 @@ studyRouter.get('/modules/:id/attempts', (req, res) => {
 /** One finished quiz with every question, the answer given, the right answer and the explanation. */
 studyRouter.get('/attempts/:id', (req, res) => {
   const a = ownAttempt(req.userId, req.params.id)
-  const rows = all(`SELECT qa.chosen_index, qa.answer_text, qa.is_correct, qa.topic, q.question, q.choices, q.correct_index, q.explanation, q.choice_notes
+  const rows = all(`SELECT qa.chosen_index, qa.answer_text, qa.is_correct, qa.topic, qa.question_id, q.question, q.choices, q.correct_index, q.explanation, q.choice_notes
                     FROM quiz_answers qa LEFT JOIN quiz_questions q ON q.id = qa.question_id
                     WHERE qa.attempt_id = ? ORDER BY qa.id`, a.id)
   res.json({
@@ -289,6 +320,7 @@ studyRouter.get('/attempts/:id', (req, res) => {
         yourAnswer: r.answer_text ?? (choices && r.chosen_index != null ? choices[r.chosen_index] : null),
         correctAnswer: choices ? choices[r.correct_index] : null,
         explanation: r.explanation ?? '',
+        questionId: r.question_id,
         choices: choices ?? [],
         chosenIndex: r.chosen_index,
         correctIndex: r.correct_index ?? null,

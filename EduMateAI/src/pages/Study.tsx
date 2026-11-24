@@ -77,6 +77,30 @@ function NoQuestions({ moduleId, onAdded }: { moduleId: number; onAdded: () => v
 }
 
 /**
+ * Fills in missing per-choice notes (e.g. for questions made before notes existed) by asking the server,
+ * which writes them with AI and saves them. Returns question id -> notes, plus whether it's still loading.
+ */
+function useChoiceNotes(items: { id: number | null; choices: string[]; notes: string[] }[] | null) {
+  const [filled, setFilled] = useState<Record<number, string[]>>({})
+  const [loading, setLoading] = useState(false)
+  const need = (items ?? []).filter((x) => x.id !== null && x.choices.length > 0 && x.choices.some((_, i) => !x.notes[i]?.trim())).map((x) => x.id as number)
+  const key = need.join(',')
+  useEffect(() => {
+    if (!key) return
+    let live = true
+    setLoading(true)
+    api.post<{ notes: Record<number, string[]> }>('/questions/explain', { questionIds: key.split(',').map(Number) })
+      .then((r) => { if (live) setFilled((f) => ({ ...f, ...r.notes })) })
+      .catch(() => {})
+      .finally(() => { if (live) setLoading(false) })
+    return () => { live = false }
+  }, [key])
+  return { notes: (id: number | null, fallback: string[]) => (id !== null && filled[id]?.some((n) => n.trim()) ? filled[id] : fallback), loading }
+}
+
+const WritingNotes = () => <p className="mt-4 flex items-center justify-center gap-2 text-xs font-semibold text-slate-400"><Sparkles size={13} className="animate-pulse text-green-600" /> Writing explanations for every choice…</p>
+
+/**
  * Results view of one multiple-choice question: every choice with its explanation/example, marking
  * the correct one and the one the student picked. `order` is the display order the student saw.
  */
@@ -339,6 +363,7 @@ function QuizHistory({ moduleId, moduleTitle, onBack }: { moduleId: number; modu
 function QuizReview({ attempt, title, onBack }: { attempt: QuizAttempt; title: string; onBack: () => void }) {
   const { data, error, reload } = useApi<{ attempt: QuizAttempt; answers: QuizReviewAnswer[] }>(`/attempts/${attempt.id}`)
   const wrong = data?.answers.filter((a) => !a.correct).length ?? 0
+  const filled = useChoiceNotes(data ? data.answers.map((a) => ({ id: a.questionId, choices: a.choices, notes: a.choiceNotes })) : null)
   return (
     <div className="mx-auto max-w-3xl card p-6 sm:p-9">
       <button onClick={onBack} className="mb-5 flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-green-700"><ArrowLeft size={16} /> Back to history</button>
@@ -352,13 +377,14 @@ function QuizReview({ attempt, title, onBack }: { attempt: QuizAttempt; title: s
       <div className="mt-7 space-y-3">
         {error && <ErrorBox message={error} onRetry={reload} />}
         {!data && !error && <Loading />}
+        {filled.loading && <WritingNotes />}
         {data?.answers.map((a, n) => (
           <div key={n} className={`rounded-xl border p-4 text-sm ${a.correct ? 'border-green-200 bg-green-50/50' : 'border-red-200 bg-red-50/50'}`}>
             <div className="flex items-start gap-2 font-bold text-slate-800">
               {a.correct ? <CheckCircle2 size={17} className="mt-0.5 shrink-0 text-green-600" /> : <XCircle size={17} className="mt-0.5 shrink-0 text-red-500" />}
               <span>{n + 1}. {a.question ?? <i className="font-normal text-slate-400">This question was deleted from the question bank.</i>}</span>
             </div>
-            {a.choices.length > 0 && a.chosenIndex !== null ? <div className="pl-6"><ChoiceBreakdown choices={a.choices} notes={a.choiceNotes} correctIndex={a.correctIndex} chosenIndex={a.chosenIndex} explanation={a.explanation} /></div> : <div className="mt-2 space-y-1 pl-6">
+            {a.choices.length > 0 && a.chosenIndex !== null ? <div className="pl-6"><ChoiceBreakdown choices={a.choices} notes={filled.notes(a.questionId, a.choiceNotes)} correctIndex={a.correctIndex} chosenIndex={a.chosenIndex} explanation={a.explanation} /></div> : <div className="mt-2 space-y-1 pl-6">
               <div className={a.correct ? 'text-green-700' : 'text-red-600'}>Your answer: <b>{a.yourAnswer ?? '—'}</b></div>
               {a.correctAnswer && <div className="text-green-700">Correct answer: <b>{a.correctAnswer}</b></div>}
               {a.explanation && <div className="mt-2 rounded-lg bg-white/70 p-3 text-xs leading-5 text-slate-600"><b className="text-slate-700">Explanation:</b> {a.explanation}</div>}
@@ -390,6 +416,7 @@ function QuizMode({ moduleId, moduleTitle }: { moduleId: number; moduleTitle: st
   const [managing, setManaging] = useState(false)
   const [adding, setAdding] = useState(false)
   const finishing = useRef(false)
+  const filled = useChoiceNotes(done ? answers.map(({ q, r }) => ({ id: q.id, choices: q.choices, notes: r?.choiceNotes ?? [] })) : null)
 
   const finish = async (id = attemptId) => {
     if (finishing.current || !id) return
@@ -447,6 +474,7 @@ function QuizMode({ moduleId, moduleTitle }: { moduleId: number; moduleTitle: st
         <div className={`mx-auto mb-4 grid size-16 place-items-center rounded-2xl text-xl font-extrabold ${done.percent >= 75 ? 'bg-green-50 text-green-700' : done.percent >= 50 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-600'}`}>{done.percent}%</div>
         <h2 className="text-2xl font-extrabold">Quiz complete</h2>
         <p className="mt-2 text-slate-500">You scored {done.score} out of {done.total}{done.total < questions.length ? ` (${questions.length - done.total} unanswered)` : ''}.</p>
+        {filled.loading && <WritingNotes />}
       </div>
       <div className="mt-7 space-y-3">
         {answers.map(({ q, chosen, r, order }, n) => (
@@ -456,7 +484,7 @@ function QuizMode({ moduleId, moduleTitle }: { moduleId: number; moduleTitle: st
               <span>{n + 1}. {q.question}</span>
             </div>
             <div className="pl-6">
-              <ChoiceBreakdown choices={q.choices} notes={r?.choiceNotes ?? []} correctIndex={r?.correctIndex ?? null} chosenIndex={chosen} explanation={r?.explanation ?? ''} order={order} />
+              <ChoiceBreakdown choices={q.choices} notes={filled.notes(q.id, r?.choiceNotes ?? [])} correctIndex={r?.correctIndex ?? null} chosenIndex={chosen} explanation={r?.explanation ?? ''} order={order} />
             </div>
           </div>
         ))}

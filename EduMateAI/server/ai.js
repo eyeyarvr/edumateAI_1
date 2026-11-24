@@ -137,6 +137,8 @@ function shuffleChoices(q) {
   return { ...q, choices: order.map((i) => q.choices[i]), choiceNotes: order.map((i) => q.choiceNotes[i] ?? ''), correctIndex: order.indexOf(q.correctIndex) }
 }
 
+const NOTE_RULES = `For the correct choice, explain briefly why it is correct. For EVERY wrong choice, explain what that choice actually means or refers to (its own definition or use, from the reviewer if it appears there) and why it does not answer this question. Each note is 1-2 sentences and ends with a short concrete example starting with "Example:".`
+
 const SYSTEM = 'You create accurate, exam-focused study material for university students. You never invent facts that are not in the source you are given.'
 
 /**
@@ -202,7 +204,7 @@ Rules:
 - Questions: 12-20 multiple-choice questions with exactly 4 choices each, covering every section of the reviewer, mixed Easy / Medium / Hard.
 - The correct choice should be short (a term, phrase or value) so it can also be used as a typed answer.
 - Wrong choices must be plausible (use other terms from the reviewer where possible).
-- "choiceNotes" has exactly one entry per choice, in the same order. For the correct choice, explain why it is correct; for each wrong choice, explain why it is wrong or what it actually means. Every note must include a concrete example (start it with "Example:"), taken from the reviewer where possible. 1-3 sentences each.`
+- "choiceNotes" has exactly one entry per choice, in the same order. NEVER leave a note empty. ${NOTE_RULES}`
 
   const text = await callAI({ system: SYSTEM, messages: [{ role: 'user', content: prompt }], maxTokens: 12000, json: true })
   let json
@@ -217,6 +219,54 @@ Rules:
       .filter((q) => q.question && Array.isArray(q.choices) && q.choices.length >= 2 && Number.isInteger(q.correctIndex) && q.correctIndex >= 0 && q.correctIndex < q.choices.length)
       .map((q) => shuffleChoices({ ...q, choiceNotes: Array.isArray(q.choiceNotes) ? q.choiceNotes.map((n) => String(n ?? '')) : [] })),
   }
+}
+
+/** Glossary lines from a reviewer ("- **Term** — definition"), keyed by lower-case term. */
+function glossary(reviewer) {
+  const map = new Map()
+  for (const m of (reviewer || '').matchAll(/^\s*[-*]\s+\*\*(.+?)\*\*\s*(?:—|–|-|:)\s*(.+)$/gm)) map.set(m[1].trim().toLowerCase(), m[2].trim())
+  return map
+}
+
+/**
+ * Write the missing per-choice notes for existing questions (e.g. ones generated before notes existed).
+ * `items` is [{ id, question, choices, correctIndex, explanation, notes }]; returns Map(id -> notes[]).
+ * Without an AI key, falls back to the reviewer's glossary so wrong choices still get a definition.
+ */
+export async function explainChoices(items, reviewer) {
+  const result = new Map()
+  if (!items.length) return result
+  if (aiEnabled()) {
+    const prompt = `${reviewer ? `REVIEWER (the study notes these questions come from):\n"""\n${reviewer.slice(0, 60_000)}\n"""\n\n` : ''}For each multiple-choice question below, write a note for every choice, in the same order as the choices. ${NOTE_RULES}
+Base the notes on the reviewer where possible.
+
+QUESTIONS:
+${JSON.stringify(items.map((q) => ({ id: q.id, question: q.question, choices: q.choices, correctIndex: q.correctIndex, explanation: q.explanation })))}
+
+Return ONLY valid JSON (no markdown fences): {"items": [{"id": <question id>, "choiceNotes": ["...", "..."]}]}`
+    try {
+      const text = await callAI({ system: SYSTEM, messages: [{ role: 'user', content: prompt }], maxTokens: Math.min(12000, 400 + items.length * 450), json: true })
+      const json = JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, ''))
+      for (const x of json.items || []) {
+        const q = items.find((i) => i.id === Number(x.id))
+        if (q && Array.isArray(x.choiceNotes)) result.set(q.id, q.choices.map((_, i) => String(x.choiceNotes[i] ?? '').trim() || q.notes[i] || ''))
+      }
+    } catch (e) {
+      console.error('[ai] could not explain choices', e.message)
+    }
+  }
+  // Fill whatever is still missing from the glossary / existing explanation.
+  const terms = glossary(reviewer)
+  for (const q of items) {
+    const notes = result.get(q.id) ?? q.choices.map((_, i) => q.notes[i] || '')
+    result.set(q.id, notes.map((n, i) => {
+      if (n) return n
+      const def = terms.get(String(q.choices[i]).trim().toLowerCase())
+      if (i === q.correctIndex) return q.explanation || (def ? `${q.choices[i]}: ${def}` : '')
+      return def ? `${q.choices[i]} means: ${def} — that is not what this question describes.` : ''
+    }))
+  }
+  return result
 }
 
 /** Ask the AI to build a reviewer from an uploaded module, then flashcards and quiz questions from that reviewer. */
