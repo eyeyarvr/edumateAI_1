@@ -269,6 +269,41 @@ Return ONLY valid JSON (no markdown fences): {"items": [{"id": <question id>, "c
   return result
 }
 
+/**
+ * Feedback for a wrong typed answer in Q&A: why the student's answer is wrong and a corrected version of it.
+ * `hint` is a known note about what they wrote (e.g. the note of a wrong choice they typed), if any.
+ * Returns { whyWrong, correction }.
+ */
+export async function explainWrongAnswer({ question, userAnswer, correctAnswer, explanation, reviewer, hint }) {
+  if (aiEnabled()) {
+    const prompt = `${reviewer ? `REVIEWER (the student's study notes):\n"""\n${reviewer.slice(0, 60_000)}\n"""\n\n` : ''}A student answered a study question incorrectly.
+
+QUESTION: ${question}
+STUDENT'S ANSWER: ${userAnswer}
+CORRECT ANSWER: ${correctAnswer}
+${explanation ? `EXPLANATION OF THE CORRECT ANSWER: ${explanation}\n` : ''}${hint ? `NOTE ABOUT THE STUDENT'S ANSWER: ${hint}\n` : ''}
+Write kind, specific feedback, based on the reviewer where possible. Speak to the student as "you".
+- "whyWrong": 1-3 sentences on why THEIR answer is wrong. If they named a real term or idea, say what it actually is or does (e.g. "Luksong baka is a leapfrog game where you jump over a crouching player…") and why it doesn't fit this question. Point out any wrong reasoning in what they wrote.
+- "correction": their answer rewritten correctly, 1-2 sentences, keeping their wording where possible (e.g. "Piko, because its hopscotch format makes you hop on one foot…").
+
+Return ONLY valid JSON (no markdown fences): {"whyWrong": "...", "correction": "..."}`
+    try {
+      const text = await callAI({ system: SYSTEM, messages: [{ role: 'user', content: prompt }], maxTokens: 500, json: true })
+      const json = JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, ''))
+      if (json.whyWrong) return { whyWrong: String(json.whyWrong).trim(), correction: String(json.correction || '').trim() }
+    } catch (e) {
+      console.error('[ai] could not explain wrong answer', e.message)
+    }
+  }
+  // Without AI: use what we know about the answer they gave, if anything.
+  const terms = glossary(reviewer)
+  const flat = (s) => ` ${String(s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `
+  const said = flat(userAnswer)
+  const term = [...terms.keys()].find((t) => flat(t) !== flat(correctAnswer) && said.includes(flat(t)))
+  const whyWrong = hint || (term ? `“${term}” means: ${terms.get(term)} — that isn't what this question describes.` : `Your answer doesn't match the key idea the question is asking for.`)
+  return { whyWrong, correction: `The answer is ${correctAnswer}.${explanation ? ` ${explanation}` : ''}` }
+}
+
 /** Ask the AI to build a reviewer from an uploaded module, then flashcards and quiz questions from that reviewer. */
 export async function generateStudyMaterial(module, subjectName) {
   if (!aiEnabled()) throw new HttpError(503, 'AI generation needs a GEMINI_API_KEY or ANTHROPIC_API_KEY in the server .env file. You can still add flashcards and questions manually.')

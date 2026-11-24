@@ -213,16 +213,27 @@ function QAMode({ moduleId, onOpenReviewer }: { moduleId: number; onOpenReviewer
           </div>
           <textarea value={answer} disabled={!!result} onChange={(e) => setAnswer(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && answer.trim() && !result) check() }}
             className="input mt-5 min-h-28 resize-none py-3" placeholder="Type your answer and explain your reasoning..." />
-          {result && (
-            <div className={`mt-4 rounded-xl border p-4 ${result.correct ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}>
-              <div className={`flex items-center gap-2 font-bold ${result.correct ? 'text-green-700' : 'text-red-700'}`}>{result.correct ? <CheckCircle2 size={17} /> : <XCircle size={17} />} {result.correct ? 'Correct' : 'Not quite'} — {result.correctAnswer}</div>
+          {result && (result.correct ? (
+            <div className="mt-4 rounded-xl border border-green-200 bg-green-50 p-4">
+              <div className="flex items-center gap-2 font-bold text-green-700"><CheckCircle2 size={17} /> Correct — {result.correctAnswer}</div>
               {result.explanation && <p className="mt-2 text-sm leading-6 text-slate-600">{result.explanation}</p>}
             </div>
-          )}
+          ) : (
+            <div className="mt-4 space-y-3 rounded-xl border border-red-200 bg-red-50 p-4">
+              <div className="flex items-center gap-2 font-bold text-red-700"><XCircle size={17} /> Not quite</div>
+              {result.feedback?.whyWrong && <div><div className="text-xs font-extrabold uppercase tracking-wider text-red-700">Why your answer is wrong</div><p className="mt-1 text-sm leading-6 text-slate-700">{result.feedback.whyWrong}</p></div>}
+              {result.feedback?.correction && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3"><div className="text-xs font-extrabold uppercase tracking-wider text-amber-700">Corrected answer</div><p className="mt-1 text-sm leading-6 text-slate-700">{result.feedback.correction}</p></div>}
+              <div className="rounded-lg border border-green-200 bg-white p-3">
+                <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-green-700"><CheckCircle2 size={14} /> Right answer</div>
+                <p className="mt-1 font-bold text-slate-800">{result.correctAnswer}</p>
+                {result.explanation && <p className="mt-1 text-sm leading-6 text-slate-600">{result.explanation}</p>}
+              </div>
+            </div>
+          ))}
           <div className="mt-5 flex justify-between">
             <Button variant="secondary" disabled={!!result || !answer} onClick={() => setAnswer('')}><RotateCcw size={15} /> Clear</Button>
             {result ? <Button onClick={next}>{index + 1 >= questions.length ? 'Finish' : 'Next question'} <ArrowRight size={15} /></Button>
-              : <Button disabled={!answer.trim()} loading={busy} onClick={check}>Check answer <ArrowRight size={15} /></Button>}
+              : <Button disabled={!answer.trim()} loading={busy} onClick={check}>{busy ? 'Checking…' : 'Check answer'} <ArrowRight size={15} /></Button>}
           </div>
         </>}
       </section>

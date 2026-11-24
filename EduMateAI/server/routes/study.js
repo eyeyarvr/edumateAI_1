@@ -6,7 +6,7 @@ import { all, db, findOwned, insert, one, run, transaction } from '../db/index.j
 import { HttpError } from '../errors.js'
 import { int, oneOf, str } from '../validate.js'
 import { ownSubject } from './subjects.js'
-import { aiEnabled, explainChoices, generateStudyMaterial } from '../ai.js'
+import { aiEnabled, explainChoices, explainWrongAnswer, generateStudyMaterial } from '../ai.js'
 import { logActivity } from '../stats.js'
 import { FILE_TYPES, pdfPages, removeUploads, upload, uploadPath } from '../uploads.js'
 
@@ -257,7 +257,7 @@ function gradeText(answer, correct) {
 
 const percent = (score, total) => (total ? Math.round((100 * score) / total) : 0)
 
-studyRouter.post('/attempts/:id/answers', (req, res) => {
+studyRouter.post('/attempts/:id/answers', async (req, res) => {
   const a = ownAttempt(req.userId, req.params.id)
   if (a.completed_at) throw new HttpError(400, 'This quiz is already finished.')
   const q = findOwned('quiz_questions', req.userId, int(req.body.questionId, 'question'), 'Question')
@@ -276,7 +276,18 @@ studyRouter.post('/attempts/:id/answers', (req, res) => {
   run('INSERT INTO quiz_answers (attempt_id, question_id, topic, chosen_index, answer_text, is_correct) VALUES (?, ?, ?, ?, ?, ?)', a.id, q.id, q.topic, chosen, text, correct ? 1 : 0)
   run('UPDATE quiz_attempts SET score = score + ?, total = total + 1 WHERE id = ?', correct ? 1 : 0, a.id)
   const totals = one('SELECT score, total FROM quiz_attempts WHERE id = ?', a.id)
-  res.json({ correct, correctIndex: q.correct_index, correctAnswer: choices[q.correct_index], explanation: q.explanation, choiceNotes: parseNotes(q.choice_notes), ...totals })
+  const notes = parseNotes(q.choice_notes)
+  // A wrong typed answer (Q&A) gets feedback on what they wrote: why it's wrong and a corrected version.
+  let feedback = null
+  if (text !== null && !correct) {
+    const typed = choices.findIndex((c, i) => i !== q.correct_index && gradeText(text, c))
+    feedback = await explainWrongAnswer({
+      question: q.question, userAnswer: text, correctAnswer: choices[q.correct_index], explanation: q.explanation,
+      reviewer: one('SELECT reviewer FROM modules WHERE id = ?', q.module_id)?.reviewer ?? '',
+      hint: typed >= 0 ? notes[typed] ?? '' : '',
+    })
+  }
+  res.json({ correct, correctIndex: q.correct_index, correctAnswer: choices[q.correct_index], explanation: q.explanation, choiceNotes: notes, feedback, ...totals })
 })
 
 studyRouter.post('/attempts/:id/complete', (req, res) => {
