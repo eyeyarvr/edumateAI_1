@@ -242,17 +242,43 @@ studyRouter.post('/attempts', (req, res) => {
   res.status(201).json({ attemptId: id })
 })
 
-const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+/** Lower-case words, with a simple plural "s" dropped so "lists" matches "list". */
+const tokens = (s) => String(s).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).map((w) => (w.length > 3 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w))
 
-/** Lenient grading for typed answers: exact phrase, or most of the key words present. */
-function gradeText(answer, correct) {
-  const a = ` ${norm(answer)} `
-  const c = norm(correct)
-  if (!c) return false
-  if (a.includes(` ${c} `) || a.replace(/ /g, '').includes(c.replace(/ /g, ''))) return true
-  const keys = c.split(' ').filter((w) => w.length > 2)
+/**
+ * Does the typed answer contain `target`? Matches whole words only, so "div" does not match "individual"
+ * and "ordered list" does not match "unordered list". Spacing is ignored across word boundaries
+ * ("java script" = "JavaScript"). Long answers (5+ key words) may miss one key word; shorter ones need all.
+ */
+function mentions(answer, target) {
+  const a = tokens(answer)
+  const t = tokens(target)
+  if (!t.length || !a.length) return false
+  // The answer, joined in runs of whole words, equals the target with its spaces removed.
+  const joined = t.join('')
+  for (let i = 0; i < a.length; i++) {
+    let run = ''
+    for (let j = i; j < a.length && run.length < joined.length; j++) {
+      run += a[j]
+      if (run === joined) return true
+    }
+  }
+  const keys = [...new Set(t.filter((w) => w.length > 2))]
   if (!keys.length) return false
-  return keys.filter((w) => a.includes(` ${w} `)).length / keys.length >= 0.6
+  const have = new Set(a)
+  const missing = keys.filter((w) => !have.has(w)).length
+  return missing === 0 || (keys.length >= 5 && missing <= 1)
+}
+
+/**
+ * Grade a typed answer against a question's choices. Wrong when it matches the correct answer but also
+ * names two or more of the wrong choices (e.g. typing every option); naming one other term while
+ * explaining the answer is fine.
+ */
+function gradeText(answer, choices, correctIndex) {
+  if (!mentions(answer, choices[correctIndex])) return false
+  const others = choices.filter((c, i) => i !== correctIndex && !mentions(choices[correctIndex], c) && mentions(answer, c))
+  return others.length < 2
 }
 
 const percent = (score, total) => (total ? Math.round((100 * score) / total) : 0)
@@ -261,6 +287,7 @@ studyRouter.post('/attempts/:id/answers', async (req, res) => {
   const a = ownAttempt(req.userId, req.params.id)
   if (a.completed_at) throw new HttpError(400, 'This quiz is already finished.')
   const q = findOwned('quiz_questions', req.userId, int(req.body.questionId, 'question'), 'Question')
+  if (q.module_id !== a.module_id) throw new HttpError(400, 'That question is not part of this quiz.')
   if (one('SELECT id FROM quiz_answers WHERE attempt_id = ? AND question_id = ?', a.id, q.id)) throw new HttpError(409, 'You already answered this question.')
   const choices = JSON.parse(q.choices)
   let correct
@@ -268,7 +295,7 @@ studyRouter.post('/attempts/:id/answers', async (req, res) => {
   let text = null
   if (req.body.answerText !== undefined) {
     text = str(req.body, 'answerText', { required: true, max: 2000 })
-    correct = gradeText(text, choices[q.correct_index])
+    correct = gradeText(text, choices, q.correct_index)
   } else {
     chosen = int(req.body.chosenIndex, 'choice')
     correct = chosen === q.correct_index
@@ -280,7 +307,7 @@ studyRouter.post('/attempts/:id/answers', async (req, res) => {
   // A wrong typed answer (Q&A) gets feedback on what they wrote: why it's wrong and a corrected version.
   let feedback = null
   if (text !== null && !correct) {
-    const typed = choices.findIndex((c, i) => i !== q.correct_index && gradeText(text, c))
+    const typed = choices.findIndex((c, i) => i !== q.correct_index && mentions(text, c))
     feedback = await explainWrongAnswer({
       question: q.question, userAnswer: text, correctAnswer: choices[q.correct_index], explanation: q.explanation,
       reviewer: one('SELECT reviewer FROM modules WHERE id = ?', q.module_id)?.reviewer ?? '',

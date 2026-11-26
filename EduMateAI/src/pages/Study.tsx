@@ -149,6 +149,7 @@ function QAMode({ moduleId, onOpenReviewer }: { moduleId: number; onOpenReviewer
   const [attemptId, setAttemptId] = useState<number | null>(null)
   const [tally, setTally] = useState({ correct: 0, wrong: 0 })
   const [busy, setBusy] = useState(false)
+  const checking = useRef(false)
   const [finished, setFinished] = useState(false)
   useEffect(() => { setIndex(0); setAnswer(''); setResult(null); setAttemptId(null); setTally({ correct: 0, wrong: 0 }); setFinished(false) }, [data])
 
@@ -159,6 +160,9 @@ function QAMode({ moduleId, onOpenReviewer }: { moduleId: number; onOpenReviewer
   const q = questions[index]
 
   const check = async () => {
+    // Ctrl+Enter isn't blocked by the disabled button, so ignore repeats while an answer is being checked.
+    if (checking.current) return
+    checking.current = true
     setBusy(true)
     try {
       let id = attemptId
@@ -166,7 +170,7 @@ function QAMode({ moduleId, onOpenReviewer }: { moduleId: number; onOpenReviewer
       const r = await api.post<AnswerResult>(`/attempts/${id}/answers`, { questionId: q.id, answerText: answer })
       setResult(r)
       setTally((t) => (r.correct ? { ...t, correct: t.correct + 1 } : { ...t, wrong: t.wrong + 1 }))
-    } catch (e) { toast((e as Error).message, 'error') } finally { setBusy(false) }
+    } catch (e) { toast((e as Error).message, 'error') } finally { checking.current = false; setBusy(false) }
   }
   const next = async () => {
     if (index + 1 >= questions.length) {
