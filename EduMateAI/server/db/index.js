@@ -31,6 +31,11 @@ if (!db.prepare('PRAGMA table_info(quiz_questions)').all().some((c) => c.name ==
   db.exec("ALTER TABLE quiz_questions ADD COLUMN choice_notes TEXT NOT NULL DEFAULT '[]'")
 }
 
+// AI generation only runs inside a live request, so nothing can still be "Processing" when the server starts.
+// A module left in that state was interrupted (server stopped or crashed mid-generation): make it usable again.
+const interrupted = db.prepare("UPDATE modules SET status = 'Ready to Study' WHERE status = 'Processing'").run().changes
+if (interrupted) console.log(`Reset ${interrupted} module(s) left "Processing" by an interrupted AI generation.`)
+
 /** Run fn inside a transaction; rolls back on error. */
 export function transaction(fn) {
   db.exec('BEGIN')

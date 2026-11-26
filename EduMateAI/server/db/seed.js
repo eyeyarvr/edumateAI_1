@@ -59,7 +59,7 @@ const SUBJECTS = [
           ['Which property safely sets plain text inside an element?', ['innerHTML', 'outerHTML', 'textContent', 'value'], 2, 'textContent sets text without parsing HTML, avoiding injection issues.', 'DOM Selection'],
           ['Event delegation relies on which behaviour?', ['Event capturing only', 'Event bubbling', 'Synchronous rendering', 'Hoisting'], 1, 'Delegation attaches one listener to a parent and uses bubbling to handle events from children.', 'DOM Events'],
         ] },
-      { title: 'Responsive CSS Layouts', file: 'Responsive_Design_Notes.docx', type: 'DOCX', pages: 19, ago: 1, status: 'Processing', cards: [], questions: [] },
+      { title: 'Responsive CSS Layouts', file: 'Responsive_Design_Notes.docx', type: 'DOCX', pages: 19, ago: 1, cards: [], questions: [] },
       { title: 'Frontend APIs & Async Data', file: 'Module_04_Web_APIs.pdf', type: 'PDF', pages: 31, ago: 0,
         cards: [['What does fetch() return?', 'A Promise that resolves to a Response object.']],
         questions: [['Which keyword pauses an async function until a Promise settles?', ['yield', 'await', 'then', 'defer'], 1, 'await pauses execution inside an async function until the Promise resolves or rejects.', 'Async JavaScript']] },
