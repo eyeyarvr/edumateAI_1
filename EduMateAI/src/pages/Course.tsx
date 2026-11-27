@@ -58,8 +58,8 @@ function ModuleRow({ module, index, onChanged, aiEnabled }: { module: Module; in
   const generate = async () => {
     setMenu(false); setBusy(true)
     try {
-      const r = await api.post<{ flashcards: number; questions: number; grounded: boolean }>(`/modules/${module.id}/generate`)
-      toast(`Generated ${r.flashcards} flashcards and ${r.questions} questions${r.grounded ? '' : ' (from the module title — attach a PDF for content-based questions)'}`)
+      const r = await api.post<{ flashcards: number; questions: number; grounded: boolean; ungroundedReason?: string }>(`/modules/${module.id}/generate`)
+      toast(`Generated ${r.flashcards} flashcards and ${r.questions} questions${r.grounded ? '' : ` from the module title only, because ${r.ungroundedReason || 'the file could not be read'}`}`)
       onChanged()
     } catch (e) { toast((e as Error).message, 'error') } finally { setBusy(false) }
   }

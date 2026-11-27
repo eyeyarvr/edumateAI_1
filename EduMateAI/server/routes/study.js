@@ -127,7 +127,7 @@ studyRouter.post('/modules/:id/generate', async (req, res) => {
     run("UPDATE modules SET reviewer = ?, status = 'Ready to Study' WHERE id = ?", out.reviewer, m.id)
     logActivity(req.userId, m.subject_id, 'reviewer', `Generated study materials for “${m.title}”`)
   })
-  res.json({ flashcards: out.flashcards.length, questions: out.questions.length, grounded: out.grounded })
+  res.json({ flashcards: out.flashcards.length, questions: out.questions.length, grounded: out.grounded, ungroundedReason: out.ungroundedReason })
 })
 
 studyRouter.get('/ai/status', (_req, res) => res.json({ enabled: aiEnabled() }))

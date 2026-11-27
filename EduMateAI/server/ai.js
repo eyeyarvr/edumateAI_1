@@ -9,6 +9,7 @@ import path from 'node:path'
 import { config } from './config.js'
 import { all } from './db/index.js'
 import { HttpError } from './errors.js'
+import { officeText } from './extract.js'
 
 const provider = () => {
   if (config.aiProvider === 'gemini' && config.geminiApiKey) return 'gemini'
@@ -147,13 +148,24 @@ const SYSTEM = 'You create accurate, exam-focused study material for university 
  */
 async function generateReviewer(module, subjectName) {
   const content = []
+  // Why the file couldn't be used (shown to the student), or '' when it was.
+  let ungroundedReason = ''
   const filePath = module.stored_name ? path.join(config.uploadDir, module.stored_name) : null
-  if (filePath && fs.existsSync(filePath)) {
-    if (module.file_type === 'PDF' && module.size_bytes < 30 * 1024 * 1024) {
+  const type = module.file_type
+  if (!filePath || !fs.existsSync(filePath)) {
+    ungroundedReason = 'no file is attached to this module'
+  } else if (type === 'PDF') {
+    if (module.size_bytes < 30 * 1024 * 1024) {
       content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: fs.readFileSync(filePath).toString('base64') } })
-    } else if (['TXT', 'MD'].includes(module.file_type)) {
-      content.push({ type: 'text', text: `MODULE TEXT:\n${fs.readFileSync(filePath, 'utf8').slice(0, 150_000)}` })
-    }
+    } else ungroundedReason = 'this PDF is too large for the AI to read'
+  } else if (['TXT', 'MD'].includes(type)) {
+    content.push({ type: 'text', text: `MODULE TEXT:\n${fs.readFileSync(filePath, 'utf8').slice(0, 150_000)}` })
+  } else if (['DOCX', 'PPTX'].includes(type)) {
+    const text = officeText(filePath, type)
+    if (text) content.push({ type: 'text', text: `MODULE TEXT (extracted from the ${type === 'PPTX' ? 'PowerPoint slides' : 'Word document'}):\n${text.slice(0, 150_000)}` })
+    else ungroundedReason = `no text could be read from this ${type} file (it may contain only images)`
+  } else {
+    ungroundedReason = `old .${type.toLowerCase()} files can't be read — save it as ${type === 'PPT' ? 'PPTX' : 'DOCX'} or PDF and upload again`
   }
   const grounded = content.length > 0
   content.push({ type: 'text', text: `Subject: ${subjectName}
@@ -177,7 +189,7 @@ Requirements:
   const text = await callAI({ system: SYSTEM, messages: [{ role: 'user', content }], maxTokens: 8000 })
   const reviewer = text.replace(/^```(?:markdown|md)?\s*|\s*```$/g, '').trim()
   if (!reviewer) throw new HttpError(502, 'The AI could not summarise this module. Please try generating again.')
-  return { reviewer, grounded }
+  return { reviewer, grounded, ungroundedReason }
 }
 
 /** Step 2: build flashcards and quiz questions using only what the reviewer says. */
@@ -307,7 +319,7 @@ Return ONLY valid JSON (no markdown fences): {"whyWrong": "...", "correction": "
 /** Ask the AI to build a reviewer from an uploaded module, then flashcards and quiz questions from that reviewer. */
 export async function generateStudyMaterial(module, subjectName) {
   if (!aiEnabled()) throw new HttpError(503, 'AI generation needs a GEMINI_API_KEY or ANTHROPIC_API_KEY in the server .env file. You can still add flashcards and questions manually.')
-  const { reviewer, grounded } = await generateReviewer(module, subjectName)
+  const { reviewer, grounded, ungroundedReason } = await generateReviewer(module, subjectName)
   const { flashcards, questions } = await generateFromReviewer(reviewer, module, subjectName)
-  return { reviewer, flashcards, questions, grounded }
+  return { reviewer, flashcards, questions, grounded, ungroundedReason }
 }
